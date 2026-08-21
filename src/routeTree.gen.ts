@@ -10,33 +10,128 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ScoreRouteImport } from './routes/score'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as FindingFindingIdRouteImport } from './routes/finding.$findingId'
+import { Route as FindingsProjectIdRouteImport } from './routes/findings.$projectId'
+import { Route as ScanProjectIdRouteImport } from './routes/scan.$projectId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScoreRoute = ScoreRouteImport.update({
+  id: '/score',
+  path: '/score',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FindingFindingIdRoute = FindingFindingIdRouteImport.update({
+  id: '/finding/$findingId',
+  path: '/finding/$findingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FindingsProjectIdRoute = FindingsProjectIdRouteImport.update({
+  id: '/findings/$projectId',
+  path: '/findings/$projectId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanProjectIdRoute = ScanProjectIdRouteImport.update({
+  id: '/scan/$projectId',
+  path: '/scan/$projectId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/score': typeof ScoreRoute
+  '/settings': typeof SettingsRoute
+  '/finding/$findingId': typeof FindingFindingIdRoute
+  '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/score': typeof ScoreRoute
+  '/settings': typeof SettingsRoute
+  '/finding/$findingId': typeof FindingFindingIdRoute
+  '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/score': typeof ScoreRoute
+  '/settings': typeof SettingsRoute
+  '/finding/$findingId': typeof FindingFindingIdRoute
+  '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/score'
+    | '/settings'
+    | '/finding/$findingId'
+    | '/findings/$projectId'
+    | '/scan/$projectId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/score'
+    | '/settings'
+    | '/finding/$findingId'
+    | '/findings/$projectId'
+    | '/scan/$projectId'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/score'
+    | '/settings'
+    | '/finding/$findingId'
+    | '/findings/$projectId'
+    | '/scan/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
+  LoginRoute: typeof LoginRoute
+  ScoreRoute: typeof ScoreRoute
+  SettingsRoute: typeof SettingsRoute
+  FindingFindingIdRoute: typeof FindingFindingIdRoute
+  FindingsProjectIdRoute: typeof FindingsProjectIdRoute
+  ScanProjectIdRoute: typeof ScanProjectIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +143,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/score': {
+      id: '/score'
+      path: '/score'
+      fullPath: '/score'
+      preLoaderRoute: typeof ScoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finding/$findingId': {
+      id: '/finding/$findingId'
+      path: '/finding/$findingId'
+      fullPath: '/finding/$findingId'
+      preLoaderRoute: typeof FindingFindingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/findings/$projectId': {
+      id: '/findings/$projectId'
+      path: '/findings/$projectId'
+      fullPath: '/findings/$projectId'
+      preLoaderRoute: typeof FindingsProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan/$projectId': {
+      id: '/scan/$projectId'
+      path: '/scan/$projectId'
+      fullPath: '/scan/$projectId'
+      preLoaderRoute: typeof ScanProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
+  LoginRoute: LoginRoute,
+  ScoreRoute: ScoreRoute,
+  SettingsRoute: SettingsRoute,
+  FindingFindingIdRoute: FindingFindingIdRoute,
+  FindingsProjectIdRoute: FindingsProjectIdRoute,
+  ScanProjectIdRoute: ScanProjectIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

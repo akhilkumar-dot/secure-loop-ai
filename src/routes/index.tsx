@@ -1,10 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   ArrowRight,
   BrainCircuit,
   FileText,
-  FlaskConical,
   GitPullRequest,
   GraduationCap,
   KeyRound,
@@ -21,6 +20,7 @@ import {
   PillLink,
   TerminalWindow,
 } from "@/components/chrome";
+import { useAuth } from "@/hooks/use-auth";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "SecureLoop scans your repo with Semgrep and OWASP ZAP, explains every finding in plain language, generates a patch, and sandbox-validates it before you ever see it.",
+          "SecureLoop scans your repo with AI, explains every finding in plain language, generates a patch, and validates it before you ever see it.",
       },
       { property: "og:title", content: "SecureLoop — Ship secure code, not just detected bugs" },
       {
@@ -52,7 +52,7 @@ function LandingPage() {
       <ValidateSection />
       <LearnSection />
       <ComparisonSection />
-      <Testimonials />
+      <FeatureGrid />
       <Faq />
       <FooterCta />
       <Footer />
@@ -63,6 +63,8 @@ function LandingPage() {
 /* ---------------------------------- nav ----------------------------------- */
 
 function MarketingNav() {
+  const { user, loading, signOut } = useAuth();
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
@@ -82,15 +84,35 @@ function MarketingNav() {
           </a>
         </nav>
         <div className="flex items-center gap-3">
-          <Link
-            to="/login"
-            className="hidden font-mono text-xs text-subtle transition-colors hover:text-foreground sm:block"
-          >
-            sign in
-          </Link>
-          <PillLink to="/dashboard" className="px-4 py-2">
-            try the demo
-          </PillLink>
+          {!loading && (
+            <>
+              {user ? (
+                <>
+                  <button
+                    onClick={() => signOut()}
+                    className="hidden font-mono text-xs text-subtle transition-colors hover:text-foreground sm:block cursor-pointer"
+                  >
+                    sign out
+                  </button>
+                  <PillLink to="/dashboard" className="px-4 py-2">
+                    go to dashboard →
+                  </PillLink>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="hidden font-mono text-xs text-subtle transition-colors hover:text-foreground sm:block"
+                  >
+                    sign in
+                  </Link>
+                  <PillLink to="/login" className="px-4 py-2">
+                    get started
+                  </PillLink>
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -100,36 +122,44 @@ function MarketingNav() {
 /* ---------------------------------- hero ----------------------------------- */
 
 const heroTerminal = [
-  { text: "$ secureloop scan github.com/you/vulnshop-api", tone: "fg" },
-  { text: "▸ cloning @ 3fa9c21 into ephemeral workspace… done", tone: "dim" },
-  { text: "▸ semgrep: 214 rules · 38 files scanned", tone: "warn" },
+  { text: "$ secureloop scan github.com/you/your-api", tone: "fg" },
+  { text: "▸ fetching repo via GitHub API… done", tone: "dim" },
+  { text: "▸ gemini-2.0-flash: 38 files analyzed", tone: "warn" },
   { text: "  ✖ routes/users.js:42    sqli   CWE-89   critical", tone: "err" },
   { text: "  ✖ web/ProfileBio.tsx:17 xss    CWE-79   high", tone: "err" },
-  { text: "▸ llm: explanations + candidate patches… done", tone: "warn" },
-  { text: "▸ sandbox validation", tone: "warn" },
-  { text: "  ✓ re-scan clean · ✓ 41/41 tests · ✓ 0 new issues", tone: "ok" },
+  { text: "▸ generating explanations + candidate patches… done", tone: "warn" },
+  { text: "▸ validating patches with gemini", tone: "warn" },
+  { text: "  ✓ vulnerability gone · ✓ no new issues · ✓ tests pass", tone: "ok" },
   { text: "  patch #1 validated — ready for your review", tone: "ok" },
 ] as const;
 
 function Hero() {
+  const { user } = useAuth();
+
   return (
     <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,black,transparent)]" />
       <div className="relative mx-auto max-w-6xl px-6 pt-24 pb-16 text-center md:pt-32">
-        <Eyebrow className="mb-6">closed-loop secure code review</Eyebrow>
+        <Eyebrow className="mb-6">closed-loop secure code review · powered by Gemini AI</Eyebrow>
         <h1 className="mx-auto max-w-3xl font-display text-4xl font-semibold leading-[1.1] tracking-tight md:text-6xl">
           Ship secure code, not just detected bugs.
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-subtle">
-          SecureLoop scans your repo, explains every vulnerability in plain
-          language, writes a candidate patch — and re-scans + re-tests it in an
-          isolated sandbox before it ever reaches you.
+          SecureLoop fetches your GitHub repo, analyzes every file with Gemini,
+          explains each vulnerability in plain language, generates a patch — and
+          validates it before it ever reaches you.
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <PillLink to="/dashboard">get started</PillLink>
-          <PillLink to="/scan/demo" variant="outline">
-            try a sample repo
-          </PillLink>
+          {user ? (
+            <PillLink to="/dashboard">go to dashboard →</PillLink>
+          ) : (
+            <>
+              <PillLink to="/login">get started — it's free</PillLink>
+              <PillLink to="/login" variant="outline">
+                sign in
+              </PillLink>
+            </>
+          )}
         </div>
 
         <TerminalWindow
@@ -163,11 +193,11 @@ function Hero() {
 /* ------------------------------- trust strip ------------------------------- */
 
 function TrustStrip() {
-  const items = ["Semgrep", "OWASP ZAP", "Gemini", "Docker sandboxes", "GitHub"];
+  const items = ["Gemini 2.0 Flash", "GitHub API", "Supabase", "OAuth 2.0", "OWASP Top 10"];
   return (
     <section className="border-y border-border">
       <div className="mx-auto max-w-6xl px-6 py-10">
-        <Eyebrow className="text-center">scans powered by</Eyebrow>
+        <Eyebrow className="text-center">powered by</Eyebrow>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4">
           {items.map((name) => (
             <span
@@ -188,18 +218,18 @@ function TrustStrip() {
 const pipelineFeatures = [
   {
     icon: ScanSearch,
-    title: "Detect with Semgrep + ZAP",
-    desc: "Static analysis across your codebase, plus baseline DAST when the repo runs a web app. SQLi, XSS, CSRF, insecure deserialization.",
+    title: "Detect with Gemini AI",
+    desc: "Real static analysis across your entire codebase. SQLi, XSS, CSRF, insecure deserialization — with file paths, line numbers, and CWE IDs.",
   },
   {
     icon: BrainCircuit,
     title: "Explained in plain language",
-    desc: "Every finding gets a structured explanation: what it is, the root cause, its OWASP category, and how the fix works.",
+    desc: "Every finding gets a structured explanation: what it is, the root cause, its OWASP category, and exactly how the fix works.",
   },
   {
     icon: FileText,
     title: "Patched as a unified diff",
-    desc: "The LLM sees the whole function, the CWE, and your tests — and outputs a reviewable diff, never a silent rewrite.",
+    desc: "Gemini sees the whole function, the CWE, and your context — and outputs a reviewable diff, never a silent rewrite.",
   },
 ];
 
@@ -232,15 +262,14 @@ function ValidateSection() {
         <div>
           <Eyebrow>02 // validated, not vibes</Eyebrow>
           <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight md:text-4xl">
-            Every patch is re-scanned and re-tested before you ever see it.
+            Every patch is re-validated by AI before you ever see it.
           </h2>
           <p className="mt-5 leading-relaxed text-subtle">
-            LLMs write plausible-looking patches that often don't fix the bug,
-            break tests, or introduce new issues. SecureLoop applies each diff
-            inside an ephemeral Docker sandbox, re-runs Semgrep on the changed
-            files, and runs your test suite. A patch only reaches your review
-            queue when the original rule no longer fires, no new findings
-            appear, and the tests stay green.
+            LLMs write plausible-looking patches that often don't fix the bug
+            or introduce new issues. SecureLoop sends each patch back to Gemini
+            for a full validation pass — checking whether the vulnerability is
+            gone, tests would pass, and no new issues were introduced. A patch
+            only reaches your review queue when it passes all checks.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-2 font-mono text-[11px]">
             {["detected", "explained", "patch_generated", "validating", "validated"].map(
@@ -259,14 +288,13 @@ function ValidateSection() {
         </div>
         <TerminalWindow title="validation — patch-8f2c1">
           <div className="text-subtle">$ secureloop validate patch-8f2c1</div>
-          <div className="text-accent">▸ ephemeral container spun up (node:20)</div>
-          <div className="text-accent">▸ applying diff… clean apply</div>
-          <div className="text-foreground/80">▸ semgrep --rule javascript.express.sql-injection</div>
-          <div className="text-success">  ✓ original rule no longer fires</div>
-          <div className="text-foreground/80">▸ semgrep full pack on changed files</div>
+          <div className="text-accent">▸ applying diff to patched code…</div>
+          <div className="text-foreground/80">▸ gemini: re-analyzing for original vulnerability</div>
+          <div className="text-success">  ✓ original vulnerability no longer present</div>
+          <div className="text-foreground/80">▸ gemini: checking for newly introduced issues</div>
           <div className="text-success">  ✓ 0 new findings introduced</div>
-          <div className="text-foreground/80">▸ npm test</div>
-          <div className="text-success">  ✓ 41 passed, 0 failed</div>
+          <div className="text-foreground/80">▸ gemini: validating test safety</div>
+          <div className="text-success">  ✓ tests would pass</div>
           <div className="mt-2 border-t border-border pt-2 text-success">
             verdict: ACCEPTED — ready for developer review
           </div>
@@ -290,7 +318,7 @@ function LearnSection() {
           <div className="mt-3 space-y-1.5">
             <div className="text-subtle">  a) they encrypt the input</div>
             <div className="text-success">
-              [32m  b) the query is parsed before data is bound ✓ correct
+              {"  b) the query is parsed before data is bound ✓ correct"}
             </div>
             <div className="text-subtle">  c) they strip all quotes</div>
           </div>
@@ -311,8 +339,7 @@ function LearnSection() {
             Every accepted or rejected patch ends with a 60-second interactive
             check on the vulnerability class you just touched. Answers feed a
             per-category security score — SQLi, XSS, CSRF, deserialization — so
-            you can watch your secure-coding instincts trend upward, and export
-            the data for your team.
+            you can watch your secure-coding instincts trend upward.
           </p>
           <div className="mt-7">
             <PillLink to="/score" variant="outline">
@@ -388,14 +415,14 @@ function ComparisonSection() {
         </div>
         <p className="mt-4 font-mono text-[11px] text-subtle">
           every secureloop run logs detection, patch-success, and acceptance
-          metrics — exportable for your own evaluation.
+          metrics — visible on your dashboard.
         </p>
       </div>
     </section>
   );
 }
 
-/* ------------------------------- secondary --------------------------------- */
+/* ------------------------------- feature grid ----------------------------- */
 
 const secondaryFeatures = [
   {
@@ -411,7 +438,7 @@ const secondaryFeatures = [
   {
     icon: ListChecks,
     title: "Audit trail",
-    desc: "Every accept, reject, and override is logged with its validation evidence.",
+    desc: "Every accept, reject, and override is logged in Supabase with its full validation evidence.",
   },
   {
     icon: GraduationCap,
@@ -419,18 +446,18 @@ const secondaryFeatures = [
     desc: "Micro-quizzes tied to each vulnerability class keep the knowledge from the fix.",
   },
   {
-    icon: FlaskConical,
-    title: "Sample repo mode",
-    desc: "Demo the whole loop on a bundled vulnerable fixture — no GitHub account needed.",
+    icon: ScanSearch,
+    title: "Real repo scanning",
+    desc: "Connect any public or private GitHub repo. Gemini analyzes real source files — no simulations.",
   },
   {
     icon: FileText,
-    title: "PDF reports",
-    desc: "Download a per-scan vulnerability report with findings, patches, and validation verdicts.",
+    title: "Scan history",
+    desc: "Every scan run is persisted with findings, patches, validation verdicts, and security score trends.",
   },
 ];
 
-function Testimonials() {
+function FeatureGrid() {
   return (
     <section className="border-t border-border">
       <div className="mx-auto max-w-6xl px-6 py-24">
@@ -457,23 +484,23 @@ function Testimonials() {
 const faqs = [
   {
     q: "How is this different from Copilot Autofix or Semgrep Autofix?",
-    a: "Those tools generate patches and trust them. SecureLoop treats every LLM patch as a candidate: it is applied in an ephemeral sandbox, re-scanned with the rule that fired, checked for newly introduced findings, and run against your test suite. Only patches that pass all checks reach your review queue — rejected ones are shown with the exact failing check, never silently shipped.",
+    a: "Those tools generate patches and trust them. SecureLoop treats every LLM patch as a candidate: it's sent back to Gemini for a full validation pass — checking vulnerability removal, test safety, and new issue detection. Only patches that pass all checks reach your review queue.",
   },
   {
     q: "Do you train on my code?",
-    a: "No. Code context is sent to the LLM only to generate an explanation or patch for that finding, with secrets and credentials stripped first. Nothing is retained for training, and every prompt is audit-logged.",
+    a: "No. Code context is sent to Gemini only to generate an explanation or patch for that finding, with secrets and credentials stripped first. Nothing is retained for training, and every action is audit-logged in your Supabase database.",
   },
   {
     q: "What languages and vulnerability classes are supported?",
-    a: "Anything Semgrep can parse — JavaScript/TypeScript, Python, Go, Java, and more. At launch SecureLoop targets four classes end-to-end: SQL injection, XSS, CSRF, and insecure deserialization, each with its own patch strategy and education track.",
+    a: "Gemini can analyze any language. At launch SecureLoop targets four classes end-to-end: SQL injection, XSS, CSRF, and insecure deserialization, each with its own patch strategy and education track.",
   },
   {
-    q: "Is my repo ever sent anywhere insecure?",
-    a: "Your repo is cloned into an ephemeral, isolated workspace that is destroyed after validation. Patches are never applied to your working copy. Web-facing repos get an OWASP ZAP baseline scan against the sandboxed instance, not your production deployment.",
+    q: "Do I need a GitHub token?",
+    a: "Public repositories work without any token. For private repositories, add a GitHub Personal Access Token with 'repo' scope in Settings — it's stored encrypted in Supabase and never shared.",
   },
   {
     q: "What happens when a patch fails validation?",
-    a: "It's labeled clearly with the failing condition — vulnerability still present, tests broken, or new findings introduced — and it can't be one-click accepted. An explicit override exists for transparency, and overrides are logged separately as their own metric.",
+    a: "It's labeled clearly with the failing condition — vulnerability still present, tests broken, or new findings introduced — and it can't be one-click accepted. An explicit override exists for transparency, and overrides are logged separately.",
   },
 ];
 
@@ -514,22 +541,31 @@ function Faq() {
 /* ------------------------------- footer cta -------------------------------- */
 
 function FooterCta() {
+  const { user } = useAuth();
+
   return (
     <section className="relative overflow-hidden border-t border-border">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_50%_60%_at_50%_50%,black,transparent)]" />
       <div className="relative mx-auto max-w-6xl px-6 py-28 text-center">
         <h2 className="font-display text-3xl font-semibold tracking-tight md:text-5xl">
-          Try SecureLoop now.
+          {user ? "Ready to scan your next repo?" : "Start securing your code today."}
         </h2>
         <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-subtle">
-          Run the full loop — scan, explain, patch, validate — on the bundled
-          vulnerable sample repo. No account required.
+          {user
+            ? "Connect a GitHub repository and run the full AI pipeline — scan, explain, patch, validate."
+            : "Sign up and connect your first GitHub repository. The full AI pipeline runs in minutes."}
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <PillLink to="/dashboard">get started</PillLink>
-          <PillLink to="/scan/demo" variant="outline">
-            scan the sample repo
-          </PillLink>
+          {user ? (
+            <PillLink to="/dashboard">go to dashboard →</PillLink>
+          ) : (
+            <>
+              <PillLink to="/login">create account</PillLink>
+              <PillLink to="/login" variant="outline">
+                sign in
+              </PillLink>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -538,9 +574,9 @@ function FooterCta() {
 
 function Footer() {
   const cols: { title: string; links: string[] }[] = [
-    { title: "product", links: ["pipeline", "validation", "education", "pricing"] },
-    { title: "resources", links: ["documentation", "sample repo", "owasp top 10", "changelog"] },
-    { title: "company", links: ["about", "research notes", "contact"] },
+    { title: "product", links: ["pipeline", "validation", "education", "security score"] },
+    { title: "resources", links: ["documentation", "owasp top 10", "cwe database", "changelog"] },
+    { title: "company", links: ["about", "contact"] },
     { title: "legal", links: ["privacy", "terms", "security"] },
   ];
   return (

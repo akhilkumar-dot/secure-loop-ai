@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import type { DiffLine, FindingStatus, Severity } from "@/lib/demo-data";
+import type { DiffLine, FindingStatus, Severity } from "@/lib/types";
 
 /* ---------------------------------- logo ---------------------------------- */
 
