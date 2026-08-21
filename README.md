@@ -1,59 +1,76 @@
-# Secure Loop AI
+# SecureLoop
 
-BUILD PROMPT — SecureLoop
+**AI-Assisted Secure Code Review & Developer Education Platform**
 
-AI-Assisted Secure Code Review & Developer Education Platform (Capstone Project 1)
+SecureLoop scans a codebase for security vulnerabilities, uses an LLM to explain each finding in plain language and generate a candidate patch, then **automatically validates that patch in an isolated sandbox** — re-running the security scan and test suite — before ever showing it to a developer. Every accept/reject decision is logged, and a short interactive check reinforces the underlying secure-coding concept, so the tool teaches secure coding rather than silently applying it.
 
-Paste this entire document into Claude Code (or another agentic coding tool) as the task brief. It is written to be handed to an AI agent directly — it specifies product, architecture, data models, APIs, the validation pipeline, and the exact visual design system to follow.
+> Detection alone isn't the hard part anymore, and neither is getting an LLM to *suggest* a fix. The hard part — and the gap this project targets — is trusting that an AI-generated patch actually works. SecureLoop's contribution is the closed validation loop between "AI wrote a patch" and "a developer should accept it."
 
-0. What you are building
+---
 
-SecureLoop is a closed-loop AI-assisted secure code review platform. A developer submits a repository (GitHub URL or ZIP). The system scans it for vulnerabilities (Semgrep for code, OWASP ZAP for running web apps), sends findings to an LLM for a plain-language explanation and a candidate patch, automatically validates that patch in an isolated sandbox (re-scan + re-run tests + no-new-findings check), and only then surfaces it to the developer for accept/reject. Every accepted/rejected fix also feeds a short interactive check and a security score, so the tool teaches secure coding instead of just applying it silently.
+## Table of Contents
 
-This is not "AI finds bugs" or "AI writes patches" — those already exist (Semgrep Autofix, GitHub Copilot Autofix, APPATCH, VulRepair, etc.). The product and the research contribution are the same thing: a validated, human-in-the-loop remediation loop with measurable education outcomes, which the literature (Zhang et al. 2024, IWSPA; Zhou et al. 2024/2025, TOSEM survey) shows is exactly the missing piece — LLMs generate plausible-looking patches that often don't actually fix the vulnerability, break tests, or silently introduce new issues.
+- [Why SecureLoop](#why-secureloop)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API Overview](#api-overview)
+- [Validation Pipeline](#validation-pipeline)
+- [Vulnerability Coverage](#vulnerability-coverage)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+- [Research Context](#research-context)
+- [Contributing](#contributing)
+- [License](#license)
 
-i also gave a design templete , so just follow that template , remove unrealted buttons or functionalities 
+---
 
-Research framing to keep in the code/docs (for the paper, not just the app)
+## Why SecureLoop
 
-Build the system so it can produce the comparison table below as real experimental output, not a mockup:
+Static analysis tools (Semgrep, OWASP ZAP) reliably detect vulnerabilities but don't explain them accessibly or guide a developer to a validated fix. AI coding assistants suggest fixes but rarely verify whether a patch actually removes the vulnerability, passes existing tests, or introduces new problems elsewhere. SecureLoop sits in that gap:
 
-Approach Detect Explain Patch Validate Semgrep only ✓ ✗ ✗ — LLM only ✓ ✓ ✓ ✗ Semgrep + LLM ✓ ✓ ✓ partial SecureLoop (this project) ✓ ✓ ✓ ✓
+- **Detect** — deterministic scanning via Semgrep (static analysis) and OWASP ZAP (dynamic analysis for running web apps).
+- **Explain** — an LLM translates each finding into a plain-language explanation: what it is, why it happened, its OWASP category, and how the proposed fix works.
+- **Patch** — the LLM generates a candidate fix as a unified diff.
+- **Validate** — the patch is applied in an isolated sandbox; the original scan is re-run, the test suite (if present) is executed, and the patch is only surfaced as fix-ready if the vulnerability is gone, tests pass, and no new issues were introduced.
+- **Decide** — the developer reviews the explanation, diff, and validation result, then accepts or rejects.
+- **Learn** — a short quiz tied to the vulnerability class reinforces the concept and updates a per-category security score.
 
-Log every run's metrics (see §7) so these numbers are real, exportable data — this is what turns the semester project into a defensible paper.
+## How it works
 
-1. Non-negotiable production-grade requirements
+```
+Repository (Git URL / ZIP)
+        │
+        ▼
+  Semgrep + ZAP scan ──► Findings
+        │
+        ▼
+   LLM explanation ──► plain-language writeup + OWASP category
+        │
+        ▼
+   LLM patch generation ──► unified diff
+        │
+        ▼
+  Isolated sandbox validation
+   ├─ vulnerability re-scanned — must be gone
+   ├─ existing tests re-run — must pass
+   └─ fresh scan — no new findings introduced
+        │
+        ▼
+  Accept-ready patch shown to developer
+        │
+        ▼
+  Developer accepts / rejects ──► optional PR ──► micro-quiz ──► security score updated
+```
 
-Do not build a prototype that only works on the happy path. Specifically:
+Rejected patches are never silently hidden — they're shown labeled with the specific check that failed (vulnerability still present / tests broke / new issue introduced), so nothing gets accepted on faith.
 
-Isolation: every patch is applied and tested inside an ephemeral Docker container / sandboxed clone, never on the developer's actual working copy.
+## Architecture
 
-Auth: real user accounts (email+password via bcrypt, or GitHub OAuth), JWT-based sessions, per-user data isolation.
-
-Async by design: scanning, LLM calls, and validation are slow — use a job queue (BullMQ + Redis), not blocking HTTP requests. Frontend polls or subscribes via WebSocket for live status.
-
-Idempotent, resumable pipeline: if a scan job crashes mid-way, it should be retryable without corrupting state.
-
-Secrets never touch the LLM prompt or logs: strip .env, credentials, API keys, tokens from any code sent to the LLM.
-
-Rate limiting & cost control on LLM calls (queue + per-user quota).
-
-Structured logging (pino/winston) and an audit trail of every accept/reject decision.
-
-Tests: unit tests for the validation engine's accept/reject logic (this is the core research claim — it must be correct), integration tests for the scan→explain→patch→validate pipeline using fixture repos with known CVE-style bugs.
-
-CI: GitHub Actions running lint + tests on every push.
-
-Dockerized for local dev (docker-compose up: app, Mongo, Redis, sandbox runner).
-
-Seed data / demo mode: a "Try a sample repo" button using a bundled vulnerable fixture repo, so the product can be demoed without a real GitHub account.
-
-2. Tech stack
-
-Layer Technology Notes Frontend React + TypeScript + Vite Tailwind CSS for styling (see design system §5) Backend Node.js + Express + TypeScript REST API Job queue BullMQ + Redis scan / LLM / validation jobs Static analysis Semgrep (code) run via CLI in a subprocess/container DAST OWASP ZAP (baseline scan) only for repos that expose a runnable web app Sandbox execution Docker (ephemeral containers per validation run) ffi via dockerode or CLI LLM OpenAI GPT-4o or Google Gemini 1.5/2.0 — abstract behind an LLMProvider interface never hardcode one vendor Database MongoDB + Mongoose Git integration simple-git / Git CLI clone, isolated branch per patch, PR creation via GitHub API Auth JWT + bcrypt, optional GitHub OAuth Realtime Socket.IO (or SSE) scan/validation progress PDF export Puppeteer or pdf-lib downloadable vulnerability report
-
-3. High-level architecture
-
+```
 ┌────────────┐      ┌───────────────┐      ┌──────────────────┐
 │  React SPA │◄────►│  Express API  │◄────►│     MongoDB       │
 └────────────┘      └───────┬───────┘      └──────────────────┘
@@ -64,236 +81,150 @@ Layer Technology Notes Frontend React + TypeScript + Vite Tailwind CSS for styli
                      └───────┬───────┘
               ┌──────────────┼───────────────┐
               ▼              ▼               ▼
-      ┌───────────┐  ┌──────────────┐ ┌──────────────┐
-      │ Scan Worker│  │  LLM Worker  │ │Validate Worker│
-      │ (Semgrep/  │  │ (explain +   │ │ (Docker sandbox│
-      │  ZAP)      │  │  patch gen)  │ │  re-scan+tests)│
-      └───────────┘  └──────────────┘ └──────────────┘
+      ┌───────────┐  ┌──────────────┐ ┌────────────────┐
+      │ Scan Worker│  │  LLM Worker  │ │ Validate Worker │
+      │ (Semgrep/  │  │ (explain +   │ │ (Docker sandbox,│
+      │  ZAP)      │  │  patch gen)  │ │  re-scan+tests) │
+      └───────────┘  └──────────────┘ └────────────────┘
+```
 
+Scanning, LLM calls, and sandbox validation are all queued jobs, not blocking HTTP requests — the frontend receives live progress over WebSocket.
 
-Pipeline state machine per finding: detected → explained → patch_generated → validating → validated_accepted | validated_rejected → developer_reviewed.
+## Tech Stack
 
-4. Data models (Mongoose)
+| Layer | Technology |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Backend | Node.js, Express, TypeScript |
+| Job Queue | BullMQ + Redis |
+| Static Analysis | Semgrep |
+| Dynamic Analysis | OWASP ZAP (baseline scan) |
+| Sandbox Execution | Docker (ephemeral containers per validation run) |
+| LLM Provider | OpenAI GPT-4o / Google Gemini — abstracted behind a common `LLMProvider` interface |
+| Database | MongoDB + Mongoose |
+| Git Integration | simple-git, GitHub API (PR creation) |
+| Auth | JWT + bcrypt, optional GitHub OAuth |
+| Realtime | Socket.IO |
 
-User { _id, email, passwordHash, githubToken?, createdAt }
+## Getting Started
 
-Project {
-  _id, ownerId, name, sourceType: 'git'|'zip', repoUrl?, defaultBranch,
-  lastScanId, createdAt
-}
+### Prerequisites
+- Node.js ≥ 20
+- Docker & Docker Compose
+- Semgrep CLI (`pip install semgrep` or via Docker)
+- A GitHub personal access token (for repo intake / PR creation)
+- An OpenAI or Google Gemini API key
 
-ScanRun {
-  _id, projectId, status: 'queued'|'scanning'|'explaining'|'patching'|'validating'|'done'|'failed',
-  startedAt, finishedAt, commitSha, tool: ['semgrep','zap'], findingsCount
-}
+### Installation
 
-Finding {
-  _id, scanRunId, tool, ruleId, cwe, severity, filePath, lineStart, lineEnd,
-  vulnerabilityClass: 'sqli'|'xss'|'csrf'|'insecure_deserialization'|'other',
-  rawMessage, status: 'open'|'explained'|'patched'|'validated'|'accepted'|'rejected'
-}
+```bash
+git clone https://github.com/<your-org>/secureloop.git
+cd secureloop
+cp .env.example .env   # fill in API keys, Mongo/Redis URIs, GitHub token
+docker-compose up
+```
 
-Explanation {
-  _id, findingId, whatItIs, whyItHappened, owaspCategory, howFixWorks, model, generatedAt
-}
+This starts the API, worker processes, MongoDB, and Redis. The frontend is served separately in development:
 
-Patch {
-  _id, findingId, diff, explanationId, model, generatedAt,
-  validation: {
-    vulnerabilityGone: boolean, testsPassed: boolean, newIssuesFound: number,
-    logs: string, validatedAt: Date, verdict: 'accepted'|'rejected'
-  }
-}
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-DeveloperDecision { _id, patchId, userId, action: 'accept'|'reject', prUrl?, decidedAt }
+### Try it without connecting a real repo
 
-EducationCheck { _id, findingId, question, options, correctIndex, userAnswer, correct: boolean }
+Use the **"Try a sample repo"** option on the dashboard, which runs SecureLoop against a bundled intentionally-vulnerable fixture project — no GitHub account required.
 
-SecurityScore { _id, projectId, overall, byCategory: { sqli, xss, csrf, deserialization }, computedAt }
+## Configuration
 
+Environment variables (see `.env.example`):
 
-5. Design system — match the uploaded reference EXACTLY
+| Variable | Description |
+|---|---|
+| `MONGO_URI` | MongoDB connection string |
+| `REDIS_URL` | Redis connection string for BullMQ |
+| `LLM_PROVIDER` | `openai` or `gemini` |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | LLM provider credentials |
+| `GITHUB_TOKEN` | Used for repo cloning and PR creation |
+| `JWT_SECRET` | Signing secret for auth tokens |
+| `SEMGREP_RULESETS` | Comma-separated rule packs, default `p/owasp-top-ten,p/nosql-injection` |
 
-The reference screenshot is a dark, terminal/IDE-inspired developer-tool landing page (in the style of Superset). Replicate these tokens precisely across marketing pages and the in-app dashboard — don't switch to a generic admin-panel look once past the landing page.
+## Usage
 
-Colors
+1. Sign in and connect a project via GitHub URL or ZIP upload.
+2. Trigger a scan — progress streams live as `scanning → explaining → patching → validating`.
+3. Review findings by severity and vulnerability class.
+4. Open a finding to see the vulnerable code, the plain-language explanation, the proposed patch diff, and the validation result.
+5. Accept a validated patch to open a pull request, or reject it — either action is logged.
+6. Answer the short quiz that follows to reinforce the concept and update your security score.
+7. Export a PDF vulnerability report at any time.
 
---bg:            #0A0A0A   (near-black page background)
---bg-elevated:   #121212   (cards, panels, terminal windows)
---border:        #262626   (hairline 1px borders everywhere — this look leans on borders, not shadows)
---text-primary:  #F2F1EC   (warm off-white, not pure white)
---text-secondary:#8C8C87   (muted gray for subheads/labels)
---accent:        #FF5C33   (warm orange/red — used sparingly: buttons, active states, small dot/status indicators)
---success:       #3ECF8E
---danger:        #FF5C5C
+## API Overview
 
+| Endpoint | Description |
+|---|---|
+| `POST /api/projects` | Register a new project (Git URL or ZIP) |
+| `POST /api/projects/:id/scan` | Queue a new scan run |
+| `GET /api/scans/:id` | Scan run status and findings |
+| `GET /api/findings/:id` | Finding detail, explanation, patch, validation result |
+| `POST /api/findings/:id/decision` | Accept or reject a validated patch |
+| `POST /api/findings/:id/pr` | Open a pull request for an accepted patch |
+| `GET /api/projects/:id/score` | Current security score, overall and by category |
+| `GET /api/projects/:id/report` | Download PDF vulnerability report |
 
-Typography
-
-Headlines: a monospace or geometric sans (e.g. Söhne Mono / fallback "JetBrains Mono", monospace) for large display headings — tight tracking, e.g. "Run 100+ Coding Agents in Parallel."
-
-Body copy: clean sans-serif (Inter or system-ui), text-secondary color, generous line-height.
-
-Small section eyebrows in uppercase, letter-spaced, tiny (e.g. "01 // AGENTS", "AUTOMATED PATCHING") — used above every feature section, exactly like "TRUSTED BY BUILDERS FROM", "01 OF AGENTS" in the reference.
-
-Code/terminal UI text always in monospace with syntax-highlight colors (green for additions, red for deletions/removed vulnerable lines, orange for warnings).
-
-Layout patterns to copy
-
-Hero: centered headline + subhead, two pill-shaped buttons side by side (Join waitlist filled dark w/ orange dot, View on GitHub outline), both with a small leading dot/icon.
-
-Faux terminal/IDE window directly under the hero — rounded-corner window with traffic-light dots, monospace content inside, subtle border, sits on the dark background like a floating screenshot. Use this exact pattern for: the scan results view, the patch diff view, and the validation log view.
-
-Logo/trust strip: a row of muted grayscale-style logos/wordmarks under the hero ("Trusted by builders from…") — repurpose this for "Scans powered by Semgrep · OWASP ZAP · GPT-4o" on your landing page.
-
-Feature sections: numbered eyebrow label, bold short headline, 1-2 line description, paired with a screenshot-style panel (bordered, dark, monospace content) — alternate text-left/panel-right and panel-left/text-right down the page.
-
-Two/three-column feature grids with a small icon, short headline, one-line description — used for secondary features.
-
-Testimonial grid: 3-column card grid, avatar + name + role + short quote, bordered cards on --bg-elevated.
-
-Footer CTA: full-width centered "Try it now" band before the footer, same pill buttons as hero.
-
-FAQ: simple accordion, left-aligned question, + icon, hairline dividers, no heavy styling.
-
-Buttons: pill-shaped (rounded-full), 1px border, small dot/glyph before the label, subtle hover glow only — no gradients, no drop shadows, no rounded-xl cards with soft shadows (that would break the aesthetic).
-
-Background: pure flat dark, optionally a very faint grid/dot pattern (as in the reference's footer/CTA sections) — never a gradient mesh or blob.
-
-Apply this design system to:
-
-Marketing/landing page — hero pitching SecureLoop the same way the reference pitches its product, feature sections mapped 1:1 to SecureLoop's actual features (see §6.1).
-
-In-app dashboard — keep dark theme, bordered panels, monospace for code/diffs/logs, pill buttons. The vulnerability list, patch diff viewer, and validation log should all look like the "faux terminal window" component from the landing page — don't switch to a generic light/white SaaS-dashboard look.
-
-6. Pages & screens to build
-
-6.1 Marketing site (public, unauthenticated)
-
-Landing page (/) — hero: "Ship secure code, not just detected bugs." / subhead about the closed validation loop. Terminal-window hero visual showing a live-looking scan → patch → validated sequence. Feature sections: (1) Detect with Semgrep + ZAP, (2) AI explains in plain language, (3) AI patches, (4) Every patch is re-scanned and re-tested before you ever see it (this is the hero differentiator — give it the most visual weight), (5) Learn as you fix (education layer + security score). Testimonials can be placeholder/seed content. FAQ: "How is this different from Copilot Autofix?", "Do you train on my code?", "What languages are supported?", "Is my repo ever sent anywhere insecure?". Footer CTA: "Try SecureLoop now" with Get started / View on GitHub.
-
-Login / Signup
-
-6.2 App (authenticated)
-
-Dashboard — list of connected projects, last scan status, security score badge per project, "New scan" button (GitHub URL or ZIP upload).
-
-Scan progress view — realtime pipeline state (scanning → explaining → patching → validating) shown as a terminal-style live log window (Socket.IO stream), matching the hero terminal component visually.
-
-Findings list — table/list of vulnerabilities by severity/CWE, filterable by class (SQLi/XSS/CSRF/Insecure Deserialization), status badges (open/patched/validated/accepted/rejected).
-
-Finding detail — split view: left = vulnerable code with the flagged lines highlighted; right = LLM explanation (what/why/OWASP category), then the diff of the proposed patch below (monospace, +/- colored), then the validation result panel: ✅/❌ vulnerability removed, ✅/❌ tests passed, count of new issues introduced, raw validation log (collapsible terminal window). Accept/Reject buttons only enabled once validation has run.
-
-Post-decision micro-quiz — short interactive check tied to the vulnerability class just fixed (e.g. 2-3 question quiz on why parameterized queries prevent SQLi), updates the security score.
-
-Security score dashboard — overall score + per-category (SQLi/XSS/CSRF/Deserialization) trend over time, chart component styled dark/monospace-consistent (recharts, but restyle default colors to match the palette).
-
-PDF report / PR generation — download button (report per §7) and "Open pull request" button that pushes the accepted patch to a new branch via the GitHub API.
-
-Settings — GitHub token, LLM provider choice, notification prefs.
-
-7. The validation pipeline (this is the actual research contribution — implement carefully)
+## Validation Pipeline
 
 For every candidate patch:
 
-Clone the project at the finding's commit into an ephemeral workspace (/tmp/validate/<runId> or a Docker volume).
+1. Clone the project at the finding's commit into an ephemeral sandbox.
+2. Apply the generated diff.
+3. Re-run Semgrep against the changed file(s) — the originally-fired rule must no longer trigger.
+4. Re-run Semgrep against the whole changed file to catch newly introduced issues.
+5. Run the existing test suite, if one is detected.
+6. Compute a verdict:
+   - **Accepted** only if the original finding is gone, no new findings were introduced, and (if applicable) tests pass.
+   - **Rejected** otherwise, with the specific failing condition recorded.
 
-Apply the LLM-generated diff.
+Per-run metrics (detection accuracy, patch success rate, test pass rate, new-issue rate, time-to-fix) are stored against each scan run for evaluation and reporting.
 
-Re-run Semgrep on the changed file(s) — the specific ruleId that fired originally must not fire again.
+## Vulnerability Coverage
 
-Re-run Semgrep on the whole changed file (not just the same rule) to catch newly introduced issues.
+| Class | Detected via | Patch strategy |
+|---|---|---|
+| SQL Injection | Semgrep | Rewrite to parameterized / prepared statements |
+| Cross-Site Scripting (XSS) | Semgrep + ZAP | Escape/sanitize output before rendering |
+| Cross-Site Request Forgery (CSRF) | Semgrep + ZAP | Introduce and verify per-session CSRF tokens |
+| Insecure Deserialization | Semgrep | Restrict allowed classes, prefer JSON, validate input types |
 
-If the project has a test suite (detect via package.json/pytest.ini/etc.), run it in the sandbox; record pass/fail.
+## Testing
 
-Compute verdict:
-
-accepted only if: original rule no longer fires AND no new findings introduced AND (no test suite OR tests pass).
-
-otherwise rejected, with the specific failing condition recorded (don't just say "failed" — store which check failed, this is what makes your metrics meaningful).
-
-Never let a rejected patch reach the developer as if it were ready — show it labeled clearly as "did not pass validation" with the reason, still viewable for transparency but not one-click-acceptable without an explicit override toggle (log overrides separately, they're a research-relevant metric too).
-
-Log per-run: detection accuracy proxy, false-positive rate (if you seed known-vulnerable fixtures with ground truth), patch success rate, test pass rate, vulnerability-removal rate, new-vulnerabilities-introduced rate, patch acceptance rate, time-to-fix. Store these on ScanRun so they're queryable for your evaluation section later.
-
-8. LLM prompting
-
-Abstract all LLM calls behind:
-
-interface LLMProvider {
-  explainVulnerability(finding: Finding, codeContext: string): Promise<Explanation>
-  generatePatch(finding: Finding, explanation: Explanation, codeContext: string): Promise<{diff: string}>
-  generateQuizQuestion(vulnerabilityClass: string): Promise<EducationCheck>
-}
-
-
-Explanation prompt must ask for: plain-language description, root cause, OWASP Top-10 category, and why the specific patch approach works — output as structured JSON, not free text, so the UI can render it in fixed sections.
-
-Patch prompt must include the surrounding function/file (not just the flagged line), the CWE ID, and an explicit instruction to preserve existing behavior/tests and output a unified diff only.
-
-Never include .env contents, secrets, or credentials in any prompt — strip known secret patterns before sending code context.
-
-Cap context size sent per finding; chunk large files around the vulnerable region.
-
-9. Vulnerability classes to support at launch (per proposal)
-
-Class Detect via Patch strategy SQL Injection Semgrep rule pack Rewrite to parameterized/prepared statements XSS Semgrep + ZAP Escape/sanitize output before render CSRF Semgrep + ZAP Introduce/verify per-session CSRF token Insecure Deserialization Semgrep Restrict allowed classes, prefer JSON, validate types
-
-10. Suggested build order (semester-scoped milestones)
-
-Repo intake (GitHub URL/ZIP) + Semgrep scan worker + findings persisted and listed in UI (no AI yet). Get the dark/terminal design system nailed on landing + findings list first.
-
-LLM explanation + patch generation wired to findings (no validation yet) — diff viewer UI.
-
-Sandbox validation pipeline (§7) — this is the core contribution, budget the most time here, plus unit tests proving the accept/reject logic is correct on seeded fixture repos with known good/bad patches.
-
-Accept/reject workflow + PR creation + PDF report.
-
-Education layer (micro-quiz) + security score computation/dashboard.
-
-OWASP ZAP integration for runnable web apps (stretch if time-constrained — the code-only path via Semgrep is the core deliverable).
-
-Polish marketing landing page to match the reference design pixel-for-pixel; record metrics from real scan runs for the paper's evaluation section.
-
-11. Deliverables checklist (map back to proposal §7)
-
-[ ] Repo URL / ZIP intake
-
-[ ] Automated Semgrep scanning
-
-[ ] Dashboard listing all detected vulnerabilities
-
-[ ] AI-generated plain-language explanations
-
-[ ] AI-generated secure code suggestions
-
-[ ] Automated patch validation (re-scan + tests) — with logged, queryable metrics
-
-[ ] Accept/reject workflow with downloadable PDF report
-
-[ ] (Bonus, strengthens the research angle) Education micro-checks + security score
-
-[ ] (Bonus) PR auto-generation via GitHub API
-
-Build this as a real, runnable monorepo (/frontend, /backend, /worker, docker-compose.yml). Start with milestone 1 and confirm the design system renders correctly before moving to the pipeline logic.
-
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/ef31ee4b-e260-4508-b068-0cc1944ff39e).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+```bash
+npm run test          # unit tests
+npm run test:integration   # full scan → explain → patch → validate pipeline against fixture repos
+npm run lint
 ```
+
+Integration tests run the pipeline against intentionally-vulnerable fixture projects (e.g. OWASP NodeGoat, DVWA) with hand-labeled ground truth, so the accept/reject logic in the validation engine is checked against known-correct outcomes, not just happy-path mocks.
+
+## Roadmap
+
+- [x] Repo intake (GitHub URL / ZIP)
+- [x] Semgrep-based scanning
+- [x] LLM explanation and patch generation
+- [x] Sandbox patch validation
+- [ ] OWASP ZAP integration for running web apps
+- [ ] Developer education scoring dashboard polish
+- [ ] Multi-LLM cross-validation of candidate patches
+
+## Research Context
+
+SecureLoop's contribution is deliberately scoped: it does not claim to be the first system to detect vulnerabilities or generate AI patches — an active body of work already covers both (LLM-based vulnerability repair, e.g. Pearce et al. 2023; APPATCH, USENIX Security 2025; survey by Zhou et al., ACM TOSEM 2025). What existing systems generally don't provide is automated, measurable validation of whether a generated patch actually works before a developer ever sees it — prior evaluation (Zhang et al., 2024) shows LLM-generated fixes frequently fail on real-world code. SecureLoop's closed-loop validation, combined with an explicit developer-education layer, is the specific gap this project targets.
+
+## Contributing
+
+Issues and pull requests are welcome. Please open an issue describing the change before submitting a large PR, and ensure `npm run lint` and `npm run test` pass locally.
+
+## License
+
+MIT
