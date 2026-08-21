@@ -72,7 +72,7 @@ export function PillLink({
   return (
     <Link
       to={to}
-      params={params}
+      {...(params ? { params } : {})}
       className={cn(
         "pill-hover inline-flex items-center gap-2.5 rounded-full border px-5 py-2.5 font-mono text-xs font-medium tracking-wide",
         variant === "solid"
