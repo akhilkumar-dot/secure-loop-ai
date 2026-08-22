@@ -65,7 +65,7 @@ export interface Quiz {
 export interface Finding {
   id: string;
   projectId: string;
-  tool: "semgrep" | "zap";
+  tool: "semgrep" | "zap" | "sast-rules" | "gemini-llm-heuristic";
   ruleId: string;
   cwe: string;
   severity: Severity;

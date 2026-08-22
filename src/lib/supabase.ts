@@ -42,7 +42,7 @@ export interface DbFinding {
   id: string;
   scan_run_id: string;
   project_id: string;
-  tool: "semgrep" | "zap";
+  tool: "semgrep" | "zap" | "sast-rules" | "gemini-llm-heuristic";
   rule_id: string;
   cwe?: string;
   severity: "critical" | "high" | "medium" | "low";
@@ -51,7 +51,7 @@ export interface DbFinding {
   line_end?: number;
   vulnerability_class?: "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other";
   raw_message?: string;
-  status: "open" | "explained" | "patched" | "validated" | "accepted" | "rejected";
+  status: "open" | "explained" | "patched" | "validated" | "accepted" | "rejected" | "likely_false_positive" | "dismissed";
   code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
   created_at: string;
 }
@@ -64,6 +64,9 @@ export interface DbExplanation {
   owasp_category?: string;
   how_fix_works?: string;
   model?: string;
+  confidence?: "high" | "medium" | "low" | "not_applicable";
+  is_applicable?: boolean;
+  error_type?: "false_positive" | "transient_error";
   generated_at: string;
 }
 

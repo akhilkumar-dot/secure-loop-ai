@@ -124,11 +124,11 @@ function MarketingNav() {
 const heroTerminal = [
   { text: "$ secureloop scan github.com/you/your-api", tone: "fg" },
   { text: "▸ fetching repo via GitHub API… done", tone: "dim" },
-  { text: "▸ gemini-2.0-flash: 38 files analyzed", tone: "warn" },
+  { text: "▸ openrouter-ai: 38 files analyzed", tone: "warn" },
   { text: "  ✖ routes/users.js:42    sqli   CWE-89   critical", tone: "err" },
   { text: "  ✖ web/ProfileBio.tsx:17 xss    CWE-79   high", tone: "err" },
   { text: "▸ generating explanations + candidate patches… done", tone: "warn" },
-  { text: "▸ validating patches with gemini", tone: "warn" },
+  { text: "▸ validating patches with openrouter models", tone: "warn" },
   { text: "  ✓ vulnerability gone · ✓ no new issues · ✓ tests pass", tone: "ok" },
   { text: "  patch #1 validated — ready for your review", tone: "ok" },
 ] as const;
@@ -140,12 +140,12 @@ function Hero() {
     <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,black,transparent)]" />
       <div className="relative mx-auto max-w-6xl px-6 pt-24 pb-16 text-center md:pt-32">
-        <Eyebrow className="mb-6">closed-loop secure code review · powered by Gemini AI</Eyebrow>
+        <Eyebrow className="mb-6">closed-loop secure code review · powered by OpenRouter AI</Eyebrow>
         <h1 className="mx-auto max-w-3xl font-display text-4xl font-semibold leading-[1.1] tracking-tight md:text-6xl">
           Ship secure code, not just detected bugs.
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-subtle">
-          SecureLoop fetches your GitHub repo, analyzes every file with Gemini,
+          SecureLoop fetches your GitHub repo, analyzes every file with OpenRouter multi-model fallbacks,
           explains each vulnerability in plain language, generates a patch — and
           validates it before it ever reaches you.
         </p>
@@ -193,7 +193,7 @@ function Hero() {
 /* ------------------------------- trust strip ------------------------------- */
 
 function TrustStrip() {
-  const items = ["Gemini 2.0 Flash", "GitHub API", "Supabase", "OAuth 2.0", "OWASP Top 10"];
+  const items = ["OpenRouter AI", "GitHub API", "Supabase", "OAuth 2.0", "OWASP Top 10"];
   return (
     <section className="border-y border-border">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -218,7 +218,7 @@ function TrustStrip() {
 const pipelineFeatures = [
   {
     icon: ScanSearch,
-    title: "Detect with Gemini AI",
+    title: "Detect with OpenRouter AI",
     desc: "Real static analysis across your entire codebase. SQLi, XSS, CSRF, insecure deserialization — with file paths, line numbers, and CWE IDs.",
   },
   {
@@ -229,7 +229,7 @@ const pipelineFeatures = [
   {
     icon: FileText,
     title: "Patched as a unified diff",
-    desc: "Gemini sees the whole function, the CWE, and your context — and outputs a reviewable diff, never a silent rewrite.",
+    desc: "OpenRouter models see the whole function, the CWE, and your context — and output a reviewable diff, never a silent rewrite.",
   },
 ];
 
@@ -266,7 +266,7 @@ function ValidateSection() {
           </h2>
           <p className="mt-5 leading-relaxed text-subtle">
             LLMs write plausible-looking patches that often don't fix the bug
-            or introduce new issues. SecureLoop sends each patch back to Gemini
+            or introduce new issues. SecureLoop sends each patch back to OpenRouter
             for a full validation pass — checking whether the vulnerability is
             gone, tests would pass, and no new issues were introduced. A patch
             only reaches your review queue when it passes all checks.
@@ -289,11 +289,11 @@ function ValidateSection() {
         <TerminalWindow title="validation — patch-8f2c1">
           <div className="text-subtle">$ secureloop validate patch-8f2c1</div>
           <div className="text-accent">▸ applying diff to patched code…</div>
-          <div className="text-foreground/80">▸ gemini: re-analyzing for original vulnerability</div>
+          <div className="text-foreground/80">▸ openrouter: re-analyzing for original vulnerability</div>
           <div className="text-success">  ✓ original vulnerability no longer present</div>
-          <div className="text-foreground/80">▸ gemini: checking for newly introduced issues</div>
+          <div className="text-foreground/80">▸ openrouter: checking for newly introduced issues</div>
           <div className="text-success">  ✓ 0 new findings introduced</div>
-          <div className="text-foreground/80">▸ gemini: validating test safety</div>
+          <div className="text-foreground/80">▸ openrouter: validating test safety</div>
           <div className="text-success">  ✓ tests would pass</div>
           <div className="mt-2 border-t border-border pt-2 text-success">
             verdict: ACCEPTED — ready for developer review
@@ -448,7 +448,7 @@ const secondaryFeatures = [
   {
     icon: ScanSearch,
     title: "Real repo scanning",
-    desc: "Connect any public or private GitHub repo. Gemini analyzes real source files — no simulations.",
+    desc: "Connect any public or private GitHub repo. OpenRouter models analyze real source files — no simulations.",
   },
   {
     icon: FileText,
@@ -484,15 +484,15 @@ function FeatureGrid() {
 const faqs = [
   {
     q: "How is this different from Copilot Autofix or Semgrep Autofix?",
-    a: "Those tools generate patches and trust them. SecureLoop treats every LLM patch as a candidate: it's sent back to Gemini for a full validation pass — checking vulnerability removal, test safety, and new issue detection. Only patches that pass all checks reach your review queue.",
+    a: "Those tools generate patches and trust them. SecureLoop treats every LLM patch as a candidate: it's sent back to OpenRouter for a full validation pass — checking vulnerability removal, test safety, and new issue detection. Only patches that pass all checks reach your review queue.",
   },
   {
     q: "Do you train on my code?",
-    a: "No. Code context is sent to Gemini only to generate an explanation or patch for that finding, with secrets and credentials stripped first. Nothing is retained for training, and every action is audit-logged in your Supabase database.",
+    a: "No. Code context is sent to OpenRouter only to generate an explanation or patch for that finding, with secrets and credentials stripped first. Nothing is retained for training, and every action is audit-logged in your Supabase database.",
   },
   {
     q: "What languages and vulnerability classes are supported?",
-    a: "Gemini can analyze any language. At launch SecureLoop targets four classes end-to-end: SQL injection, XSS, CSRF, and insecure deserialization, each with its own patch strategy and education track.",
+    a: "OpenRouter models can analyze any language. At launch SecureLoop targets four classes end-to-end: SQL injection, XSS, CSRF, and insecure deserialization, each with its own patch strategy and education track.",
   },
   {
     q: "Do I need a GitHub token?",

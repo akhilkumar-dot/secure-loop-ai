@@ -1,20 +1,56 @@
 /**
- * Gemini AI service — real security analysis, explanations, and patch generation.
- * Uses gemini-2.0-flash for speed and cost-efficiency.
+ * OpenAI / AI Pipeline Service
+ * Multi-model security analysis, explanations, patch generation, and validation using OpenAI API.
  */
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { OpenAIProvider, OpenAIProvidersExhaustedError } from "./openai";
+import { CohereProvider, CohereProvidersExhaustedError } from "./cohere";
+import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
 
-const apiKey =
-  (import.meta as any).env?.VITE_GEMINI_API_KEY ?? "";
-
-let _client: GoogleGenerativeAI | null = null;
-function getClient(key?: string): GoogleGenerativeAI {
-  const k = key || apiKey;
-  if (!_client || key) _client = new GoogleGenerativeAI(k);
-  return _client;
+export class QuotaExceededError extends Error {
+  isQuota = true;
+  retryAfterSec?: number;
+  constructor(message: string, retryAfterSec?: number) {
+    super(message);
+    this.name = "QuotaExceededError";
+    if (retryAfterSec !== undefined) {
+      this.retryAfterSec = retryAfterSec;
+    }
+  }
 }
 
-const MODEL = "gemini-2.0-flash";
+// In-memory cache for explanations of identical rule/message patterns within a run
+const explanationCache = new Map<string, GeminiExplanation>();
+
+function getProvider(apiKeyOverride?: string): OpenAIProvider | CohereProvider | OpenRouterProvider {
+  const openaiKey =
+    apiKeyOverride ||
+    (typeof process !== "undefined" && (process as any).env?.["OPENAI_API_KEY"]) ||
+    (import.meta as any).env?.VITE_OPENAI_API_KEY;
+
+  if (openaiKey && (openaiKey.startsWith("sk-proj-") || openaiKey.startsWith("sk-") || !apiKeyOverride)) {
+    return new OpenAIProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+  }
+
+  const cohereKey =
+    apiKeyOverride ||
+    (typeof process !== "undefined" && (process as any).env?.["COHERE_API_KEY"]) ||
+    (import.meta as any).env?.VITE_COHERE_API_KEY;
+
+  if (cohereKey && cohereKey.length > 0 && !cohereKey.startsWith("sk-")) {
+    return new CohereProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+  }
+
+  const openrouterKey =
+    apiKeyOverride ||
+    (typeof process !== "undefined" && (process as any).env?.["OPENROUTER_API_KEY"]) ||
+    (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+
+  if (openrouterKey) {
+    return new OpenRouterProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+  }
+
+  return new OpenAIProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* Types                                                                        */
@@ -29,7 +65,7 @@ export interface GeminiFinding {
   line_end: number;
   vulnerability_class: "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other";
   raw_message: string;
-  code_lines: Array<{ n: number; code: string; vuln: boolean }>;
+  code_lines: Array<{ n: number; code: string; vuln?: boolean }>;
 }
 
 export interface GeminiExplanation {
@@ -37,6 +73,10 @@ export interface GeminiExplanation {
   why_it_happened: string;
   owasp_category: string;
   how_fix_works: string;
+  model?: string;
+  confidence?: "high" | "medium" | "low" | "not_applicable";
+  is_applicable?: boolean;
+  error_type?: "false_positive" | "transient_error";
 }
 
 export interface GeminiPatch {
@@ -54,38 +94,20 @@ export interface GeminiValidation {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
-/* 1. Vulnerability scanner                                                     */
+/* 1. SAST + LLM code analyzer                                                  */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export async function analyzeCodeForVulnerabilities(
   files: Array<{ path: string; content: string }>,
   apiKeyOverride?: string,
 ): Promise<GeminiFinding[]> {
-  const client = getClient(apiKeyOverride);
-  const model = client.getGenerativeModel({
-    model: MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.1,
-    },
-  });
+  const provider = getProvider(apiKeyOverride);
 
-  // Limit file sizes to avoid token limits
-  const trimmedFiles = files
-    .filter((f) => f.content.trim().length > 0)
-    .slice(0, 20)
-    .map((f) => ({
-      path: f.path,
-      content: f.content.slice(0, 8000), // max 8k chars per file
-    }));
-
-  if (trimmedFiles.length === 0) return [];
-
-  const fileBlocks = trimmedFiles
-    .map((f) => `=== FILE: ${f.path} ===\n${f.content}`)
+  const fileBlocks = files
+    .map((f) => `--- FILE: ${f.path} ---\n${f.content}`)
     .join("\n\n");
 
-  const prompt = `You are a professional security code auditor. Analyze the following source code files for security vulnerabilities.
+  const prompt = `You are a static code security analyzer. Analyze the provided source code for real security vulnerabilities (SQLi, XSS, CSRF, insecure deserialization, command injection, path traversal, hardcoded secrets).
 
 IMPORTANT: Return ONLY valid JSON matching this exact schema. Do not include any markdown or explanation outside the JSON.
 
@@ -93,38 +115,34 @@ Schema:
 {
   "findings": [
     {
-      "rule_id": "string (e.g. javascript.express.sql-injection)",
-      "cwe": "string (e.g. CWE-89)",
+      "rule_id": "string",
+      "cwe": "string",
       "severity": "critical" | "high" | "medium" | "low",
-      "file_path": "string (exact filename from input)",
+      "file_path": "string",
       "line_start": number,
       "line_end": number,
       "vulnerability_class": "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other",
-      "raw_message": "string (concise technical description of the vulnerability)",
+      "raw_message": "string",
       "code_lines": [
-        { "n": number, "code": "string (exact line content)", "vuln": boolean }
+        { "n": number, "code": "string", "vuln": boolean }
       ]
     }
   ]
 }
 
-Rules:
-- Only report REAL vulnerabilities, not style issues
-- code_lines should include 2-3 lines of context around the vulnerable line
-- Mark the vulnerable line(s) with vuln: true
-- Focus on: SQL injection, XSS, CSRF, path traversal, insecure deserialization, hardcoded secrets, command injection, IDOR, open redirects, prototype pollution
-- If no vulnerabilities are found, return { "findings": [] }
-
 SOURCE CODE:
 ${fileBlocks}`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const parsed = JSON.parse(text);
+    const res = await provider.generateChatCompletion(
+      [{ role: "user", content: prompt }],
+      "explanation_generation",
+      { responseFormatJson: true, temperature: 0.1 },
+    );
+    const parsed = JSON.parse(res.content);
     return (parsed.findings ?? []) as GeminiFinding[];
   } catch (err) {
-    console.error("Gemini scan error:", err);
+    console.error("OpenRouter scan error:", err);
     return [];
   }
 }
@@ -143,20 +161,19 @@ export async function generateExplanation(
   },
   apiKeyOverride?: string,
 ): Promise<GeminiExplanation> {
-  const client = getClient(apiKeyOverride);
-  const model = client.getGenerativeModel({
-    model: MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.3,
-    },
-  });
+  const cacheKey = `${finding.vulnerability_class}:${finding.cwe}:${finding.raw_message}`;
+  if (explanationCache.has(cacheKey)) {
+    console.log(`[OpenRouter Cache] Reusing cached explanation for ${cacheKey}`);
+    return explanationCache.get(cacheKey)!;
+  }
+
+  const provider = getProvider(apiKeyOverride);
 
   const codeContext = finding.code_lines
     ?.map((l) => `${l.n}: ${l.code}`)
     .join("\n") ?? "";
 
-  const prompt = `You are a secure code educator. Explain the following security vulnerability to a developer in clear, practical terms.
+  const prompt = `You are a secure code educator. Analyze and explain the following security vulnerability.
 
 Vulnerability details:
 - Type: ${finding.vulnerability_class} (${finding.cwe})
@@ -165,25 +182,54 @@ Vulnerability details:
 - Code:
 ${codeContext}
 
+Evaluate whether this code actually contains the described vulnerability.
 Return ONLY valid JSON with this schema:
 {
-  "what_it_is": "2-3 sentences explaining what the vulnerability is and what an attacker can do",
-  "why_it_happened": "2-3 sentences explaining why this code pattern introduces the vulnerability",
+  "is_applicable": boolean (true if the code contains this vulnerability, false if it is a false positive),
+  "confidence": "high" | "medium" | "low" | "not_applicable",
+  "what_it_is": "2-3 sentences explaining what the vulnerability is (or if false positive, why the code is safe)",
+  "why_it_happened": "2-3 sentences explaining why this code pattern introduced it or why the rule matched",
   "owasp_category": "OWASP Top 10 category (e.g. A03:2021 — Injection)",
   "how_fix_works": "2-3 sentences explaining how the recommended fix eliminates the vulnerability"
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    return JSON.parse(text) as GeminiExplanation;
-  } catch (err) {
-    console.error("Gemini explanation error:", err);
+    const res = await provider.generateChatCompletion(
+      [{ role: "user", content: prompt }],
+      "explanation_generation",
+      { responseFormatJson: true, temperature: 0.3 },
+    );
+    const parsed = JSON.parse(res.content) as GeminiExplanation;
+    parsed.model = res.modelUsed;
+    if (parsed.is_applicable === false || parsed.confidence === "not_applicable") {
+      parsed.error_type = "false_positive";
+    }
+    explanationCache.set(cacheKey, parsed);
+    return parsed;
+  } catch (err: any) {
+    console.error("OpenRouter explanation error:", err);
+    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
+
+    if (isExhausted) {
+      return {
+        what_it_is: "OpenRouter rate limit or quota exceeded across candidate models.",
+        why_it_happened: "Rate limit reached during scan. Re-run scan later or configure a paid OpenRouter API key.",
+        owasp_category: "Quota Exceeded (OpenRouter)",
+        how_fix_works: "Re-run scan later or provide a paid OpenRouter API key in Settings.",
+        error_type: "transient_error",
+        confidence: "not_applicable",
+        is_applicable: false,
+      };
+    }
+
     return {
-      what_it_is: "Could not generate explanation.",
-      why_it_happened: "Could not generate explanation.",
-      owasp_category: "Unknown",
-      how_fix_works: "Could not generate explanation.",
+      what_it_is: "AI Explanation generation failed — retry available.",
+      why_it_happened: `AI service error: ${err?.message || String(err)}.`,
+      owasp_category: "Transient Failure",
+      how_fix_works: "Click retry to attempt generating the explanation again.",
+      error_type: "transient_error",
+      confidence: "low",
+      is_applicable: true,
     };
   }
 }
@@ -203,14 +249,7 @@ export async function generatePatch(
   fullFileContent?: string,
   apiKeyOverride?: string,
 ): Promise<GeminiPatch> {
-  const client = getClient(apiKeyOverride);
-  const model = client.getGenerativeModel({
-    model: MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.2,
-    },
-  });
+  const provider = getProvider(apiKeyOverride);
 
   const codeContext = finding.code_lines
     ?.map((l) => `${l.n}: ${l.code}`)
@@ -239,20 +278,28 @@ Return ONLY valid JSON with this schema:
 The diff must be minimal (only change what's necessary to fix the vulnerability). Include import statements if new dependencies are needed.`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    return JSON.parse(text) as GeminiPatch;
-  } catch (err) {
-    console.error("Gemini patch error:", err);
+    const res = await provider.generateChatCompletion(
+      [{ role: "user", content: prompt }],
+      "patch_generation",
+      { responseFormatJson: true, temperature: 0.2 },
+    );
+    return JSON.parse(res.content) as GeminiPatch;
+  } catch (err: any) {
+    console.error("OpenRouter patch error:", err);
+    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
     return {
-      diff: "// Patch generation failed",
-      explanation: "Could not generate patch.",
+      diff: isExhausted
+        ? "// Patch skipped — OpenRouter model fallback quota exceeded."
+        : "// Patch generation failed due to an AI error. Click retry to regenerate.",
+      explanation: isExhausted
+        ? "Patch generation skipped because all candidate models hit OpenRouter rate limits."
+        : `Could not generate patch: ${err?.message || "AI error"}.`,
     };
   }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
-/* 4. Sandbox validator (Gemini re-analysis of patched code)                   */
+/* 4. Sandbox validator (AI re-analysis of patched code)                       */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export async function validatePatch(
@@ -265,14 +312,7 @@ export async function validatePatch(
   patchDiff: string,
   apiKeyOverride?: string,
 ): Promise<GeminiValidation> {
-  const client = getClient(apiKeyOverride);
-  const model = client.getGenerativeModel({
-    model: MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.1,
-    },
-  });
+  const provider = getProvider(apiKeyOverride);
 
   const originalCode = finding.code_lines
     ?.map((l) => `${l.n}: ${l.code}`)
@@ -306,9 +346,12 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const parsed = JSON.parse(text);
+    const res = await provider.generateChatCompletion(
+      [{ role: "user", content: prompt }],
+      "patch_generation",
+      { responseFormatJson: true, temperature: 0.1 },
+    );
+    const parsed = JSON.parse(res.content);
     return {
       vulnerability_gone: parsed.vulnerability_gone ?? false,
       tests_passed: parsed.tests_passed ?? false,
@@ -317,15 +360,18 @@ Return ONLY valid JSON:
       logs: parsed.logs ?? [],
       failed_check: parsed.failed_check ?? undefined,
     };
-  } catch (err) {
-    console.error("Gemini validation error:", err);
+  } catch (err: any) {
+    console.error("OpenRouter validation error:", err);
+    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
     return {
       vulnerability_gone: false,
       tests_passed: false,
       new_issues: 0,
       verdict: "rejected",
-      logs: ["Validation failed — could not parse AI response"],
-      failed_check: "validation_error",
+      logs: isExhausted
+        ? ["Validation skipped — OpenRouter rate limits reached across candidate models"]
+        : ["Validation failed — could not parse AI response"],
+      failed_check: isExhausted ? "quota_exceeded" : "validation_error",
     };
   }
 }

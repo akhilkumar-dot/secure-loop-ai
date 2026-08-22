@@ -99,24 +99,26 @@ function FindingDetailPage() {
       .from("explanations")
       .select("*")
       .eq("finding_id", findingId)
-      .single();
+      .maybeSingle();
 
     const { data: patch } = await supabase
       .from("patches")
       .select("*")
       .eq("finding_id", findingId)
-      .single();
+      .maybeSingle();
 
-    // Check for existing decision
-    const { data: decision } = await supabase
-      .from("developer_decisions")
-      .select("action")
-      .eq("patch_id", patch?.id ?? "")
-      .eq("user_id", user!.id)
-      .single();
+    // Check for existing decision (only if patch exists)
+    if (patch?.id && user?.id) {
+      const { data: decision } = await supabase
+        .from("developer_decisions")
+        .select("action")
+        .eq("patch_id", patch.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    if (decision) {
-      setDecisionDone(decision.action as "accept" | "reject");
+      if (decision) {
+        setDecisionDone(decision.action as "accept" | "reject");
+      }
     }
 
     setFinding({
@@ -149,6 +151,19 @@ function FindingDetailPage() {
     setShowQuiz(true);
   }
 
+  async function dismissFalsePositive() {
+    if (!finding || !user) return;
+    setDeciding(true);
+
+    await supabase
+      .from("findings")
+      .update({ status: "dismissed" })
+      .eq("id", findingId);
+
+    setFinding((prev) => (prev ? { ...prev, status: "dismissed" } : null));
+    setDeciding(false);
+  }
+
   async function submitQuizAnswer() {
     if (quizAnswer === null || !finding || !user) return;
     const vulnClass = finding.vulnerability_class as keyof typeof quizData;
@@ -179,6 +194,18 @@ function FindingDetailPage() {
   const quiz = finding?.vulnerability_class
     ? quizData[finding.vulnerability_class as keyof typeof quizData]
     : null;
+
+  const isFalsePositive =
+    finding?.status === "likely_false_positive" ||
+    finding?.status === "dismissed" ||
+    finding?.explanation?.error_type === "false_positive" ||
+    finding?.explanation?.what_it_is?.toLowerCase().includes("false positive") ||
+    finding?.explanation?.confidence === "not_applicable";
+
+  const isTransientFailure =
+    finding?.explanation?.error_type === "transient_error" ||
+    finding?.explanation?.what_it_is?.toLowerCase().includes("could not generate") ||
+    finding?.explanation?.what_it_is?.toLowerCase().includes("failed");
 
   if (loading || loadingData) {
     return (
@@ -250,7 +277,54 @@ function FindingDetailPage() {
             <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
               ai explanation
             </p>
-            {finding.explanation ? (
+            {isFalsePositive ? (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-5 font-mono text-xs text-warning space-y-3 break-words [overflow-wrap:anywhere]">
+                <div className="flex items-center gap-2 font-semibold text-sm">
+                  <AlertCircle className="size-4 shrink-0" />
+                  <span>Likely False Positive</span>
+                </div>
+                <p className="text-foreground/90 leading-relaxed break-words [overflow-wrap:anywhere]">
+                  {finding.explanation?.what_it_is ||
+                    "The SAST rule matched code syntax that is non-vulnerable in this language context."}
+                </p>
+                {finding.explanation?.why_it_happened && (
+                  <p className="text-subtle text-[11px] leading-relaxed break-words [overflow-wrap:anywhere]">
+                    {finding.explanation.why_it_happened}
+                  </p>
+                )}
+                {finding.status !== "dismissed" ? (
+                  <button
+                    onClick={dismissFalsePositive}
+                    disabled={deciding}
+                    className="mt-2 inline-flex items-center gap-2 rounded-full border border-warning/40 bg-warning/20 px-4 py-1.5 font-mono text-xs font-medium text-warning hover:bg-warning/30 transition-colors cursor-pointer"
+                  >
+                    <XCircle className="size-3.5" />
+                    dismiss as false positive
+                  </button>
+                ) : (
+                  <span className="inline-block mt-2 font-mono text-xs text-subtle italic">
+                    ✓ Dismissed as False Positive
+                  </span>
+                )}
+              </div>
+            ) : isTransientFailure ? (
+              <div className="rounded-lg border border-danger/40 bg-danger/10 p-5 font-mono text-xs text-danger space-y-3 break-words [overflow-wrap:anywhere]">
+                <div className="flex items-center gap-2 font-semibold text-sm">
+                  <AlertCircle className="size-4 shrink-0" />
+                  <span>AI Explanation Generation Failed</span>
+                </div>
+                <p className="text-foreground/90 leading-relaxed break-words [overflow-wrap:anywhere]">
+                  {finding.explanation?.why_it_happened ||
+                    "Transient AI service error or rate limit occurred while processing this finding."}
+                </p>
+                <button
+                  onClick={fetchData}
+                  className="mt-2 inline-flex items-center gap-2 rounded-full border border-danger/40 bg-danger/20 px-4 py-1.5 font-mono text-xs font-medium text-danger hover:bg-danger/30 transition-colors cursor-pointer"
+                >
+                  retry explanation
+                </button>
+              </div>
+            ) : finding.explanation ? (
               <div className="rounded-lg border border-border bg-elevated p-5 space-y-4 font-mono text-xs">
                 <div>
                   <span className="text-accent">what it is</span>
@@ -273,10 +347,17 @@ function FindingDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-border bg-elevated p-5">
+              <div className="rounded-lg border border-border bg-elevated p-5 flex items-center justify-between">
                 <span className="font-mono text-xs text-subtle">
                   explanation not yet generated
                 </span>
+                <button
+                  onClick={dismissFalsePositive}
+                  disabled={deciding}
+                  className="font-mono text-[11px] text-warning hover:underline cursor-pointer"
+                >
+                  dismiss as false positive
+                </button>
               </div>
             )}
           </div>
@@ -378,8 +459,8 @@ function FindingDetailPage() {
           </div>
         )}
 
-        {/* Accept / Reject */}
-        {finding.patch && !decisionDone && (
+        {/* Accept / Reject / Dismiss */}
+        {finding.patch && !decisionDone && finding.status !== "dismissed" && (
           <div className="mt-6 flex items-center gap-3">
             {canAccept ? (
               <button
@@ -407,6 +488,14 @@ function FindingDetailPage() {
             >
               <XCircle className="size-3.5" />
               reject
+            </button>
+            <button
+              onClick={dismissFalsePositive}
+              disabled={deciding}
+              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-5 py-2.5 font-mono text-xs font-medium text-subtle hover:text-foreground disabled:opacity-50"
+            >
+              <XCircle className="size-3.5 text-warning" />
+              dismiss false positive
             </button>
           </div>
         )}

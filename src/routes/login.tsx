@@ -94,7 +94,23 @@ function LoginPage() {
 
           {/* GitHub OAuth */}
           <button
-            onClick={() => signInWithGitHub()}
+            type="button"
+            onClick={async () => {
+              setError(null);
+              const { error } = await signInWithGitHub();
+              if (error) {
+                if (
+                  error.message?.includes("not enabled") ||
+                  (error as any)?.error_code === "validation_failed"
+                ) {
+                  setError(
+                    "GitHub OAuth provider is not enabled in your Supabase project settings. Please enable GitHub under Supabase Dashboard → Authentication → Providers, or sign in with Email below.",
+                  );
+                } else {
+                  setError(error.message);
+                }
+              }
+            }}
             className="pill-hover mb-4 flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-lg border border-border bg-elevated px-4 py-2.5 font-mono text-xs font-medium transition-colors hover:text-foreground"
           >
             <Github className="size-4" />

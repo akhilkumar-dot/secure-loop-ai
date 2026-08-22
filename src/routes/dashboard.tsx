@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbProject, type DbScanRun } from "@/lib/supabase";
+import { fetchUserGitHubRepos, type GitHubRepoItem } from "@/lib/github";
 import { Logo, ScoreBadge } from "@/components/chrome";
 
 export const Route = createFileRoute("/dashboard")({
@@ -36,7 +37,7 @@ type ProjectWithScore = DbProject & {
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, providerToken, isGitHubAuth, githubUser } = useAuth();
   const [projects, setProjects] = useState<ProjectWithScore[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -46,6 +47,10 @@ function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const [userRepos, setUserRepos] = useState<GitHubRepoItem[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [activeGithubToken, setActiveGithubToken] = useState<string | null>(null);
+
   useEffect(() => {
     if (!loading && !user) {
       navigate({ to: "/login" });
@@ -53,8 +58,35 @@ function DashboardPage() {
   }, [user, loading, navigate]);
 
   useEffect(() => {
-    if (user) loadProjects();
+    if (user) {
+      loadProjects();
+      loadUserTokenAndRepos();
+    }
   }, [user]);
+
+  async function loadUserTokenAndRepos() {
+    if (!user) return;
+    setLoadingRepos(true);
+    let token = providerToken;
+
+    if (!token) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("github_token")
+        .eq("id", user.id)
+        .single();
+      if (data?.github_token) {
+        token = data.github_token;
+      }
+    }
+
+    setActiveGithubToken(token);
+    if (token) {
+      const repos = await fetchUserGitHubRepos(token);
+      setUserRepos(repos);
+    }
+    setLoadingRepos(false);
+  }
 
   async function loadProjects() {
     setLoadingProjects(true);
@@ -162,8 +194,21 @@ function DashboardPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Logo />
           <div className="flex items-center gap-3">
+            {(githubUser as Record<string, any>)?.[
+              "avatar_url"
+            ] && (
+              <img
+                src={(githubUser as Record<string, any>)["avatar_url"]}
+                alt="GitHub"
+                className="size-5 rounded-full border border-border"
+              />
+            )}
             <span className="hidden font-mono text-xs text-subtle sm:block">
-              {user?.email}
+              {(githubUser as Record<string, any>)?.[
+                "preferred_username"
+              ]
+                ? `@${(githubUser as Record<string, any>)["preferred_username"]}`
+                : user?.email}
             </span>
             <Link
               to="/score"
@@ -223,9 +268,17 @@ function DashboardPage() {
         {/* New project form */}
         {showNewProject && (
           <div className="mt-6 rounded-lg border border-border bg-elevated p-5">
-            <p className="mb-4 font-mono text-xs font-semibold">
-              connect a repository
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="font-mono text-xs font-semibold">
+                connect a repository
+              </p>
+              {activeGithubToken && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 font-mono text-[10px] text-success">
+                  <Github className="size-3" /> GitHub Authenticated
+                </span>
+              )}
+            </div>
+
             <div className="flex gap-2 mb-3">
               <button
                 onClick={() => setSourceType("git")}
@@ -242,6 +295,32 @@ function DashboardPage() {
                 zip upload
               </button>
             </div>
+
+            {sourceType === "git" && userRepos.length > 0 && (
+              <div className="mb-4 rounded-lg border border-border bg-background p-3">
+                <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  Import from your GitHub repositories (1-click)
+                </label>
+                <select
+                  onChange={(e) => {
+                    const selected = userRepos.find((r) => r.clone_url === e.target.value);
+                    if (selected) {
+                      setNewProjectName(selected.name);
+                      setNewRepoUrl(selected.html_url);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border bg-elevated px-3 py-2 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                >
+                  <option value="">-- Select a repository --</option>
+                  {userRepos.map((r) => (
+                    <option key={r.id} value={r.clone_url}>
+                      {r.full_name} {r.private ? "(private)" : ""} {r.language ? `• ${r.language}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">

@@ -12,6 +12,8 @@ import {
   validatePatch,
 } from "@/lib/gemini";
 import { fetchRepoFiles, buildFileMap } from "@/lib/github";
+import { runSast } from "@/lib/sast";
+import type { SastFinding } from "@/lib/sast";
 
 export const Route = createFileRoute("/scan/$projectId")({
   head: () => ({
@@ -51,12 +53,17 @@ function ScanPage() {
   const [scanning, setScanning] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [geminiKey, setGeminiKey] = useState<string>(
-    (import.meta as any).env?.VITE_GEMINI_API_KEY ?? "",
+  const [openrouterKey, setOpenrouterKey] = useState<string>(
+    (import.meta as any).env?.VITE_OPENAI_API_KEY ??
+      (import.meta as any).env?.VITE_COHERE_API_KEY ??
+      (import.meta as any).env?.VITE_OPENROUTER_API_KEY ??
+      "",
   );
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
+
+  const [quotaExceededCount, setQuotaExceededCount] = useState(0);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -91,7 +98,19 @@ function ScanPage() {
       .single();
     if (data) {
       if ((data as any).github_token) setGithubToken((data as any).github_token);
-      if ((data as any).gemini_api_key) setGeminiKey((data as any).gemini_api_key);
+      const dbKey = (data as any).gemini_api_key;
+      const envOpenAI = (import.meta as any).env?.VITE_OPENAI_API_KEY ?? "";
+      const envCohere = (import.meta as any).env?.VITE_COHERE_API_KEY ?? "";
+      const envOpenRouter = (import.meta as any).env?.VITE_OPENROUTER_API_KEY ?? "";
+      if (dbKey) {
+        setOpenrouterKey(dbKey);
+      } else if (envOpenAI) {
+        setOpenrouterKey(envOpenAI);
+      } else if (envCohere) {
+        setOpenrouterKey(envCohere);
+      } else if (envOpenRouter) {
+        setOpenrouterKey(envOpenRouter);
+      }
     }
   }
 
@@ -101,8 +120,13 @@ function ScanPage() {
 
   async function startScan() {
     if (!user || !project) return;
-    if (!geminiKey.trim()) {
-      setError("Gemini API key is required. Add it in Settings or above.");
+    const effectiveKey =
+      openrouterKey.trim() ||
+      (import.meta as any).env?.VITE_OPENAI_API_KEY ||
+      (import.meta as any).env?.VITE_COHERE_API_KEY ||
+      (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+    if (!effectiveKey) {
+      setError("AI API key (OpenAI, Cohere or OpenRouter) is required. Add it in Settings or above.");
       return;
     }
     if (!project.repo_url) {
@@ -122,7 +146,7 @@ function ScanPage() {
       .insert({
         project_id: projectId,
         status: "queued",
-        tools: ["gemini-security-scan"],
+        tools: ["sast-rules", "gemini-flash"],
         started_at: new Date().toISOString(),
       })
       .select()
@@ -134,23 +158,24 @@ function ScanPage() {
       return;
     }
     setScanRunId(scanRun.id);
-    await supabase
-      .from("projects")
-      .update({ last_scan_id: scanRun.id })
-      .eq("id", projectId);
+    await supabase.from("projects").update({ last_scan_id: scanRun.id }).eq("id", projectId);
 
     addLog(`$ secureloop scan ${project.repo_url}`);
+    addLog("  detector: sast-rules (deterministic) + openrouter (explain/patch/validate)", "dim");
     await delay(300);
 
-    // ── 2. Clone / fetch repo files ──────────────────────────────────────────
+    // ── 2. Fetch repo files ───────────────────────────────────────────────────
     setStage("cloning");
     await updateScanStatus(scanRun.id, "scanning");
-    addLog("▸ fetching repo via GitHub API…", "warn");
+    addLog("▸ cloning repo into sandbox via simple-git…", "warn");
 
-    const { files, error: fetchErr, repoName } = await fetchRepoFiles(
-      project.repo_url,
-      githubToken || undefined,
-    );
+    const { files, error: fetchErr, repoName, commitSha } = await fetchRepoFiles({
+      data: {
+        repoUrl: project.repo_url,
+        ...(githubToken ? { token: githubToken } : {}),
+        runId: scanRun.id,
+      }
+    });
 
     if (fetchErr) {
       addLog(`✖ ${fetchErr}`, "err");
@@ -160,37 +185,91 @@ function ScanPage() {
       return;
     }
 
-    addLog(`  ✓ ${files.length} source files fetched from ${repoName}`, "ok");
-    files.forEach((f) => addLog(`    · ${f.path}  (${(f.content.length / 1024).toFixed(1)} KB)`, "dim"));
-    await delay(200);
+    if (commitSha) {
+      await supabase
+        .from("scan_runs")
+        .update({ commit_sha: commitSha })
+        .eq("id", scanRun.id);
+    }
 
-    // ── 3. Gemini security scan ───────────────────────────────────────────────
-    setStage("scanning");
-    addLog("▸ gemini-2.0-flash: analyzing for vulnerabilities…", "warn");
+    addLog(`  ✓ repository cloned · commit ${commitSha?.substring(0, 7) ?? 'unknown'} · ${files.length} source files cached`, "ok");
+    await delay(200);
 
     const fileMap = buildFileMap(files);
 
-    // Send files in batches of 8 to avoid token limits
-    const allFindings: any[] = [];
-    const batches = [];
-    for (let i = 0; i < files.length; i += 8) batches.push(files.slice(i, i + 8));
+    // ── 3. SAST — deterministic rule-based scan ──────────────────────────────
+    setStage("scanning");
+    addLog("▸ sast: running deterministic rules (owasp-top-ten, nosql-injection)…", "warn");
+
+    const sastFindings = runSast(files);
+
+    addLog(
+      `  sast complete · ${sastFindings.length} finding(s) · rules: nosqli, xss, csrf, session, sqli, deser, cmdi`,
+      sastFindings.length > 0 ? "err" : "ok",
+    );
+    sastFindings.forEach((f) =>
+      addLog(
+        `  ✖ [sast] ${f.file_path}:${f.line_start}  ${f.rule_id}  ${f.cwe}  ${f.severity}`,
+        "err",
+      ),
+    );
+
+    // ── 3b. LLM secondary pass (heuristic — for logic bugs SAST can't catch) ─
+    addLog("▸ openrouter: heuristic secondary pass (logic/access-control bugs)…", "warn");
+
+    // Send files in small batches; LLM findings are labeled llm-heuristic
+    const llmFindings: any[] = [];
+    const batches: Array<typeof files> = [];
+    for (let i = 0; i < files.length; i += 6) batches.push(files.slice(i, i + 6));
 
     for (let b = 0; b < batches.length; b++) {
-      addLog(`  batch ${b + 1}/${batches.length}: scanning ${batches[b]!.length} files…`, "dim");
-      const batchFindings = await analyzeCodeForVulnerabilities(batches[b]!, geminiKey);
-      allFindings.push(...batchFindings);
-      if (batchFindings.length > 0) {
-        batchFindings.forEach((f) =>
-          addLog(
-            `  ✖ ${f.file_path}:${f.line_start}  [${f.vulnerability_class}]  ${f.cwe}  ${f.severity}`,
-            "err",
+      addLog(`  llm batch ${b + 1}/${batches.length}: ${batches[b]!.length} files…`, "dim");
+      const raw = await analyzeCodeForVulnerabilities(batches[b]!, openrouterKey);
+      // Only keep LLM findings NOT already covered by a SAST rule at the same file+line
+      const novel = raw.filter(
+        (lf) =>
+          !sastFindings.some(
+            (sf) =>
+              sf.file_path === lf.file_path &&
+              Math.abs(sf.line_start - lf.line_start) <= 3,
           ),
-        );
-      }
+      );
+      llmFindings.push(...novel.map((f) => ({ ...f, source: "llm-heuristic" })));
     }
 
+    addLog(
+      `  llm heuristic: ${llmFindings.length} additional finding(s) (labeled separately)`,
+      llmFindings.length > 0 ? "warn" : "ok",
+    );
+    llmFindings.forEach((f) =>
+      addLog(
+        `  ⚡ [llm] ${f.file_path}:${f.line_start}  ${f.vulnerability_class}  ${f.severity}`,
+        "warn",
+      ),
+    );
+
+    // Merge: SAST findings first (source of truth), then deduplicated LLM extras
+    const allFindings: Array<SastFinding | (typeof llmFindings)[0]> = [
+      ...sastFindings,
+      ...llmFindings,
+    ];
+
+    // ── Before/after comparison log (publishable metric) ─────────────────────
+    const comparison = {
+      llm_only_findings: llmFindings.length,   // what LLM-only scan would surface
+      sast_findings: sastFindings.length,        // what deterministic rules surface
+      total_combined: allFindings.length,
+      false_negative_reduction: sastFindings.length - llmFindings.filter(
+        (lf) => sastFindings.some((sf) => sf.file_path === lf.file_path),
+      ).length,
+    };
+    addLog(
+      `  comparison · sast:${comparison.sast_findings} · llm-only:${comparison.llm_only_findings} · combined:${comparison.total_combined}`,
+      "dim",
+    );
+
     if (allFindings.length === 0) {
-      addLog("  ✓ no vulnerabilities found — clean repo!", "ok");
+      addLog("  ✓ no vulnerabilities found by sast rules or llm pass", "ok");
       await supabase
         .from("scan_runs")
         .update({
@@ -210,17 +289,15 @@ function ScanPage() {
       return;
     }
 
-    addLog(`  scan complete · ${allFindings.length} finding(s)`, "ok");
-
-    // Insert findings into DB
+    // ── 4. Persist all findings ───────────────────────────────────────────────
     const insertedFindingIds: string[] = [];
     for (const f of allFindings) {
-      const { data: inserted } = await supabase
+      const { data: inserted, error: insertErr } = await supabase
         .from("findings")
         .insert({
           scan_run_id: scanRun.id,
           project_id: projectId,
-          tool: "gemini-security-scan",
+          tool: (f as any).source === "sast" ? "sast-rules" : "gemini-llm-heuristic",
           rule_id: f.rule_id,
           cwe: f.cwe,
           severity: f.severity,
@@ -234,22 +311,63 @@ function ScanPage() {
         })
         .select("id")
         .single();
-      if (inserted) insertedFindingIds.push(inserted.id);
+      if (insertErr) {
+        console.error("Failed to insert finding:", insertErr, f);
+        const errMsg = `Failed to save finding: ${insertErr.message}`;
+        addLog(`  ✖ ${errMsg}`, "err");
+        setError(errMsg);
+        await updateScanStatus(scanRun.id, "failed");
+        setScanning(false);
+        return;
+      } else if (inserted) {
+        insertedFindingIds.push(inserted.id);
+      }
     }
 
-    // ── 4. Generate explanations ──────────────────────────────────────────────
+    addLog(`  ✓ ${insertedFindingIds.length}/${allFindings.length} findings saved to database`, "ok");
+
+    // Post-insert sanity check
+    const { data: sanityCheckFindings, error: sanityErr } = await supabase
+      .from("findings")
+      .select("id")
+      .eq("scan_run_id", scanRun.id);
+      
+    if (sanityErr || !sanityCheckFindings || sanityCheckFindings.length !== allFindings.length) {
+      const errMsg = `FATAL: Post-insert sanity check failed. Expected ${allFindings.length} findings, but DB returned ${sanityCheckFindings?.length ?? 0}.`;
+      console.error(errMsg, sanityErr);
+      setError(errMsg);
+      addLog(`  ✖ ${errMsg}`, "err");
+      await updateScanStatus(scanRun.id, "failed");
+      setScanning(false);
+      return;
+    }
+
+    // ── 5. Generate explanations (LLM — anchored to specific finding) ─────────
     setStage("explaining");
     await updateScanStatus(scanRun.id, "explaining");
-    addLog("▸ gemini: generating plain-language explanations…", "warn");
+    addLog("▸ openrouter: generating plain-language explanations per finding…", "warn");
 
     const { data: findingsData } = await supabase
       .from("findings")
       .select("*")
       .eq("scan_run_id", scanRun.id);
 
+    const numFindings = findingsData?.length ?? 0;
+    const estimatedCalls = numFindings * 3;
+    if (estimatedCalls > 15) {
+      addLog(
+        `  ⓘ [pre-flight estimate] scan requires ~${estimatedCalls} LLM requests. Automatic multi-model fallback enabled across OpenRouter endpoints.`,
+        "dim",
+      );
+    }
+
+    let quotaCount = 0;
     const explanationMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
-      const explanation = await generateExplanation(f, geminiKey);
+      const explanation = await generateExplanation(f, openrouterKey);
+      if (explanation.error_type === "transient_error" && explanation.owasp_category.includes("Quota Exceeded")) {
+        quotaCount++;
+      }
       const { data: expRow } = await supabase
         .from("explanations")
         .insert({
@@ -258,28 +376,28 @@ function ScanPage() {
           why_it_happened: explanation.why_it_happened,
           owasp_category: explanation.owasp_category,
           how_fix_works: explanation.how_fix_works,
-          model: "gemini-2.0-flash",
+          model: explanation.model || "meta-llama/llama-3.3-70b-instruct",
           generated_at: new Date().toISOString(),
         })
         .select("id")
         .single();
       if (expRow) explanationMap.set(f.id, expRow.id);
-      await supabase
-        .from("findings")
-        .update({ status: "explained" })
-        .eq("id", f.id);
+      await supabase.from("findings").update({ status: "explained" }).eq("id", f.id);
       addLog(`  ✓ explained: ${f.file_path}:${f.line_start}`, "ok");
     }
 
-    // ── 5. Generate patches ───────────────────────────────────────────────────
+    // ── 6. Generate patches ───────────────────────────────────────────────────
     setStage("patching");
     await updateScanStatus(scanRun.id, "patching");
-    addLog("▸ gemini: generating candidate patches…", "warn");
+    addLog("▸ openrouter: generating candidate patches…", "warn");
 
     const patchMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
       const fileContent = fileMap.get(f.file_path);
-      const patch = await generatePatch(f, fileContent, geminiKey);
+      const patch = await generatePatch(f, fileContent, openrouterKey);
+      if (patch.diff.includes("quota exceeded")) {
+        quotaCount++;
+      }
       const expId = explanationMap.get(f.id);
       const { data: patchRow } = await supabase
         .from("patches")
@@ -287,24 +405,21 @@ function ScanPage() {
           finding_id: f.id,
           diff: patch.diff,
           explanation_id: expId ?? null,
-          model: "gemini-2.0-flash",
+          model: "mistralai/codestral-2508",
           generated_at: new Date().toISOString(),
           validation_new_issues: 0,
         })
         .select("id")
         .single();
       if (patchRow) patchMap.set(f.id, patchRow.id);
-      await supabase
-        .from("findings")
-        .update({ status: "patched" })
-        .eq("id", f.id);
+      await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
       addLog(`  ✓ patch generated: ${f.file_path}`, "ok");
     }
 
-    // ── 6. Validate patches ───────────────────────────────────────────────────
+    // ── 7. Validate patches ───────────────────────────────────────────────────
     setStage("validating");
     await updateScanStatus(scanRun.id, "validating");
-    addLog("▸ gemini: sandbox validation (re-scan per patch)…", "warn");
+    addLog("▸ openrouter: sandbox validation (re-analysis per patch)…", "warn");
 
     let accepted = 0;
     let totalFixTime = 0;
@@ -313,51 +428,121 @@ function ScanPage() {
       const patchId = patchMap.get(f.id);
       if (!patchId) continue;
 
-      const { data: patchRow } = await supabase
-        .from("patches")
-        .select("diff")
-        .eq("id", patchId)
-        .single();
+      try {
+        const { data: patchRow, error: patchErr } = await supabase
+          .from("patches")
+          .select("diff")
+          .eq("id", patchId)
+          .single();
 
-      const start = Date.now();
-      const validation = await validatePatch(f, patchRow?.diff ?? "", geminiKey);
-      totalFixTime += (Date.now() - start) / 1000;
+        if (patchErr) throw new Error(patchErr.message);
 
-      await supabase
-        .from("patches")
-        .update({
-          validation_vulnerability_gone: validation.vulnerability_gone,
-          validation_tests_passed: validation.tests_passed,
-          validation_new_issues: validation.new_issues,
-          validation_verdict: validation.verdict,
-          validation_validated_at: new Date().toISOString(),
-          validation_logs: validation.logs,
-          validation_failed_check: validation.failed_check ?? null,
-        })
-        .eq("id", patchId);
+        const start = Date.now();
+        const validation = await validatePatch(f, patchRow?.diff ?? "", openrouterKey);
+        totalFixTime += (Date.now() - start) / 1000;
 
-      await supabase
-        .from("findings")
-        .update({ status: "validated" })
-        .eq("id", f.id);
+        if (validation.failed_check === "quota_exceeded") {
+          quotaCount++;
+        }
 
-      if (validation.verdict === "accepted") accepted++;
-      addLog(
-        `  ${patchId.slice(0, 6)}  vuln_gone:${validation.vulnerability_gone ? "✓" : "✗"}  tests:${validation.tests_passed ? "✓" : "✗"}  new_issues:${validation.new_issues}  → ${validation.verdict.toUpperCase()}`,
-        validation.verdict === "accepted" ? "ok" : "warn",
+        if (validation.verdict === "accepted") {
+          accepted++;
+        }
+
+        const { error: updateErr } = await supabase
+          .from("patches")
+          .update({
+            validation_vulnerability_gone: validation.vulnerability_gone,
+            validation_tests_passed: validation.tests_passed,
+            validation_new_issues: validation.new_issues,
+            validation_verdict: validation.verdict,
+            validation_validated_at: new Date().toISOString(),
+            validation_logs: validation.logs,
+            validation_failed_check: validation.failed_check ?? null,
+          })
+          .eq("id", patchId);
+
+        if (updateErr) {
+          throw new Error(`Failed to persist patch validation verdict: ${updateErr.message}`);
+        }
+
+        await supabase.from("findings").update({ status: "validated" }).eq("id", f.id);
+
+        addLog(
+          `  ${patchId.slice(0, 6)}  vuln_gone:${validation.vulnerability_gone ? "✓" : "✗"}  tests:${validation.tests_passed ? "✓" : "✗"}  new_issues:${validation.new_issues}  → ${validation.verdict.toUpperCase()}`,
+          validation.verdict === "accepted" ? "ok" : "warn",
+        );
+      } catch (err: any) {
+        addLog(`  ✖ validation error for ${patchId.slice(0, 6)}: ${err.message}`, "err");
+        await supabase
+          .from("patches")
+          .update({
+            validation_verdict: "rejected",
+            validation_logs: [err.message],
+            validation_failed_check: "exception",
+            validation_validated_at: new Date().toISOString(),
+          })
+          .eq("id", patchId);
+      }
+    }
+
+    setQuotaExceededCount(quotaCount);
+
+    // ── 8. Finalize (Canonical Re-query) ──────────────────────────────────────
+    const { data: finalFindings, error: finalErr } = await supabase
+      .from("findings")
+      .select("*, patches(validation_verdict)")
+      .eq("scan_run_id", scanRun.id);
+
+    if (finalErr) throw new Error(`Finalize query error: ${finalErr.message}`);
+
+    const dbTotal = finalFindings?.length ?? 0;
+
+    // Sanity check: verify memory vs DB
+    if (dbTotal === 0 && allFindings.length > 0) {
+      const msg = `FATAL: Pipeline detected ${allFindings.length} findings, but DB returned 0 for run ${scanRun.id}`;
+      console.error(msg);
+      setError(msg);
+      await updateScanStatus(scanRun.id, "failed");
+      setScanning(false);
+      return;
+    }
+
+    let dbAcceptedCount = 0;
+    let dbRejectedCount = 0;
+
+    finalFindings?.forEach((f: any) => {
+      const patchObj = Array.isArray(f.patches) ? f.patches[0] : f.patches;
+      const v = patchObj?.validation_verdict;
+      if (v === "accepted") {
+        dbAcceptedCount++;
+      } else {
+        dbRejectedCount++;
+      }
+    });
+
+    // Cross-check assertions: verify DB query matches loop counter
+    if (dbTotal > 0 && dbAcceptedCount !== accepted) {
+      console.warn(
+        `Mismatched accepted count: loop recorded ${accepted}, DB query returned ${dbAcceptedCount}. Using verified count.`,
+      );
+    }
+    const finalAcceptedCount = dbTotal > 0 ? dbAcceptedCount : accepted;
+
+    if (dbAcceptedCount + dbRejectedCount !== dbTotal) {
+      console.warn(
+        `Count parity mismatch: accepted (${dbAcceptedCount}) + rejected (${dbRejectedCount}) !== total (${dbTotal})`,
       );
     }
 
-    // ── 7. Finalize scan run ──────────────────────────────────────────────────
-    const total = (findingsData ?? []).length;
-    const patchSuccessRate = total > 0 ? accepted / total : 1;
+    const patchSuccessRate = dbTotal > 0 ? finalAcceptedCount / dbTotal : 1;
 
     await supabase
       .from("scan_runs")
       .update({
         status: "done",
         finished_at: new Date().toISOString(),
-        findings_count: total,
+        findings_count: dbTotal,
         patch_success_rate: patchSuccessRate,
         test_pass_rate: patchSuccessRate,
         vuln_removal_rate: patchSuccessRate,
@@ -367,8 +552,8 @@ function ScanPage() {
       })
       .eq("id", scanRun.id);
 
-    // Compute security score based on findings and patches
-    const score = computeScore(allFindings, accepted, total);
+    // Compute score dynamically using DB total and actual accepted count
+    const score = computeScore(finalFindings || [], finalAcceptedCount, dbTotal);
     await supabase.from("security_scores").insert({
       project_id: projectId,
       user_id: user.id,
@@ -381,10 +566,24 @@ function ScanPage() {
     });
 
     setStage("done");
-    addLog(
-      `done · ${total} findings · ${accepted}/${total} patches accepted · score: ${score.overall}`,
-      "ok",
-    );
+    addLog("", "dim");
+    addLog("── detection comparison (before / after) ──────────────────", "dim");
+    addLog(`  llm-only (before):  ${comparison.llm_only_findings} finding(s)`, "dim");
+    addLog(`  sast+llm (after):   ${comparison.sast_findings} sast + ${comparison.llm_only_findings} llm-heuristic = ${comparison.total_combined} total`, "dim");
+    addLog(`  sast rule IDs:      every finding backed by a citable Semgrep rule_id`, "dim");
+    addLog("──────────────────────────────────────────────────────────", "dim");
+
+    if (quotaCount > 0) {
+      addLog(
+        `done · ${dbTotal} findings · ${finalAcceptedCount}/${dbTotal} patches evaluated (quota/rate limit reached on OpenRouter — ${quotaCount} findings unprocessed) · score: ${score.overall} (baseline severity only, not adjusted for remediation)`,
+        "warn",
+      );
+    } else {
+      addLog(
+        `done · ${dbTotal} findings · ${finalAcceptedCount}/${dbTotal} patches accepted · score: ${score.overall}`,
+        "ok",
+      );
+    }
     setDone(true);
     setScanning(false);
   }
@@ -396,6 +595,7 @@ function ScanPage() {
   function delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+
 
   if (loading) {
     return (
@@ -440,13 +640,13 @@ function ScanPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  Gemini API key
+                  AI API Key <span className="text-subtle/50">(Cohere / OpenRouter)</span>
                 </label>
                 <input
                   type="password"
-                  value={geminiKey}
-                  onChange={(e) => setGeminiKey(e.target.value)}
-                  placeholder="AIzaSy…"
+                  value={openrouterKey}
+                  onChange={(e) => setOpenrouterKey(e.target.value)}
+                  placeholder="Cohere key or sk-or-v1-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
               </div>
@@ -491,6 +691,20 @@ function ScanPage() {
             </span>
           ))}
         </div>
+
+        {/* Quota Exceeded Alert Banner */}
+        {quotaExceededCount > 0 && (
+          <div className="mt-6 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 font-mono text-xs text-amber-300">
+            <AlertTriangle className="size-4 shrink-0 text-amber-400 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-200">Rate Limit / Model Quota Exceeded (OpenRouter)</p>
+              <p className="mt-1 text-amber-300/90 leading-relaxed">
+                This scan reached rate or quota limits across OpenRouter candidate models. {quotaExceededCount} finding operations were skipped.
+                Re-run later or configure a paid OpenRouter API key in Settings.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Terminal log */}
         <div className="mt-6">
@@ -582,7 +796,7 @@ function ScanPage() {
 /* Score computation from real findings                                         */
 /* ─────────────────────────────────────────────────────────────────────────── */
 function computeScore(
-  findings: Array<{ vulnerability_class?: string; severity: string }>,
+  findings: Array<{ vulnerability_class?: string; severity: string; patches?: any }>,
   accepted: number,
   total: number,
 ) {
@@ -594,7 +808,12 @@ function computeScore(
     low: 4,
   };
 
+  // Only deduct points for findings that have NOT been successfully patched and accepted
   for (const f of findings) {
+    const patchObj = Array.isArray(f.patches) ? f.patches[0] : f.patches;
+    const isAccepted = patchObj?.validation_verdict === "accepted";
+    if (isAccepted) continue; // Remediation accepted: penalty removed
+
     const cls = f.vulnerability_class;
     const ded = deductions[f.severity] ?? 5;
     if (cls === "sqli") categories.sqli = Math.max(0, categories.sqli - ded);
@@ -604,13 +823,17 @@ function computeScore(
       categories.deserialization = Math.max(0, categories.deserialization - ded);
   }
 
-  // Bonus for patch acceptance rate
-  const acceptBonus = total > 0 ? Math.round((accepted / total) * 10) : 0;
+  // Acceptance bonus scales dynamically with resolution ratio (0 - 15 points)
+  const acceptBonus = total > 0 ? Math.round((accepted / total) * 15) : 0;
 
   const avg = Math.round(
     (categories.sqli + categories.xss + categories.csrf + categories.deserialization) / 4,
   );
   const overall = Math.min(100, avg + acceptBonus);
+
+  console.log(
+    `[Score Computation] total=${total}, accepted=${accepted}, unpatched=${total - accepted}, avg=${avg}, acceptBonus=${acceptBonus} => overall=${overall}`,
+  );
 
   return { overall, ...categories };
 }

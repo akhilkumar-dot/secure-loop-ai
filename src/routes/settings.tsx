@@ -128,37 +128,38 @@ function SettingsPage() {
           {/* AI Provider */}
           <Section title="ai configuration">
             <p className="mb-3 font-mono text-[11px] text-subtle leading-relaxed">
-              SecureLoop uses Gemini to analyze code, explain vulnerabilities, generate patches, and validate fixes.
+              SecureLoop uses OpenAI to analyze code, explain vulnerabilities, generate patches, and validate fixes with automatic multi-model failovers.
               Your API key is stored encrypted in Supabase and never shared.
             </p>
-            <Field label="Google Gemini API key">
+            <Field label="OpenAI API key">
               <input
                 type="password"
                 value={geminiKey}
                 onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder="AIzaSy…"
+                placeholder="sk-proj-…"
                 className="w-full rounded-lg border border-border bg-elevated px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
               />
               <p className="mt-1 font-mono text-[10px] text-subtle/50">
                 Get a key at{" "}
                 <a
-                  href="https://aistudio.google.com/app/apikey"
+                  href="https://platform.openai.com/api-keys"
                   target="_blank"
                   rel="noreferrer"
                   className="text-accent hover:underline"
                 >
-                  aistudio.google.com
+                  platform.openai.com
                 </a>
               </p>
             </Field>
             <div className="mt-3">
               <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                model
+                primary model routing
               </label>
               <div className="flex gap-2">
                 {[
-                  { id: "gemini", label: "Gemini 2.0 Flash" },
-                  { id: "gemini-pro", label: "Gemini 2.0 Pro" },
+                  { id: "openai-auto", label: "Auto (GPT-4o / GPT-4o-mini)" },
+                  { id: "gpt-4o-mini", label: "GPT-4o Mini" },
+                  { id: "gpt-4o", label: "GPT-4o" },
                 ].map((m) => (
                   <button
                     key={m.id}

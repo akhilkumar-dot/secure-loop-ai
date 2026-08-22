@@ -177,6 +177,8 @@ const statusStyles: Record<FindingStatus, string> = {
   validated: "border-success/40 text-success",
   accepted: "border-success/40 text-success",
   rejected: "border-danger/40 text-danger",
+  likely_false_positive: "border-warning/40 text-warning",
+  dismissed: "border-border text-subtle/50",
 };
 
 export function StatusBadge({ status }: { status: FindingStatus }) {

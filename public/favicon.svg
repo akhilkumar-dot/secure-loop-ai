@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="8" fill="#0A0A0A" />
+  <!-- Subtle orange glow -->
+  <circle cx="16" cy="16" r="8" fill="#FF5C33" opacity="0.25" />
+  <!-- Vibrant orange dot (SecureLoop brand logo dot) -->
+  <circle cx="16" cy="16" r="5" fill="#FF5C33" />
+</svg>

@@ -50,115 +50,186 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
   return null;
 }
 
+import { createServerFn } from "@tanstack/react-start";
+import simpleGit from "simple-git";
+import * as fs from "fs/promises";
+import * as path from "path";
+
+// In-memory cache keyed by "repoUrl:commitSha"
+const cloneCache = new Map<string, { files: RepoFile[]; repoName: string; commitSha: string; error: undefined }>();
+
 /**
- * Fetch all scannable files from a GitHub repo.
- * Returns up to 30 files to keep within Gemini token limits.
+ * Server function to fetch all scannable files from a GitHub repo via git clone.
  */
-export async function fetchRepoFiles(
-  repoUrl: string,
-  token?: string,
-): Promise<{ files: RepoFile[]; error?: string; repoName: string }> {
-  const parsed = parseGitHubUrl(repoUrl);
-  if (!parsed) {
-    return { files: [], error: "Invalid GitHub URL", repoName: "" };
-  }
-
-  const { owner, repo } = parsed;
-  const repoName = `${owner}/${repo}`;
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github.v3+json",
-  };
-  if (token) headers["Authorization"] = `token ${token}`;
-
-  try {
-    // Get the default branch
-    const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
-    if (!repoRes.ok) {
-      const errData = await repoRes.json().catch(() => ({}));
-      return {
-        files: [],
-        error: repoRes.status === 404
-          ? "Repository not found or private (provide a GitHub token for private repos)"
-          : `GitHub API error: ${repoRes.status} ${(errData as any).message ?? ""}`,
-        repoName,
-      };
+export const fetchRepoFiles = createServerFn({ method: "POST" })
+  .validator((d: { repoUrl: string; token?: string; runId: string }) => d)
+  .handler(async ({ data: { repoUrl, token, runId } }) => {
+    const parsed = parseGitHubUrl(repoUrl);
+    if (!parsed) {
+      return { files: [], error: "Invalid GitHub URL", repoName: "", commitSha: undefined };
     }
-    const repoData = await repoRes.json();
-    const defaultBranch = repoData.default_branch ?? "main";
 
-    // Get the file tree recursively
-    const treeRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
-      { headers },
-    );
-    if (!treeRes.ok) {
-      return { files: [], error: `Could not fetch file tree: ${treeRes.status}`, repoName };
+    const { owner, repo } = parsed;
+    const repoName = `${owner}/${repo}`;
+    
+    const activeToken = token || process.env["GITHUB_TOKEN"] || process.env["VITE_GITHUB_TOKEN"];
+
+    // Prepare clone URL
+    let cloneUrl = repoUrl;
+    if (!cloneUrl.startsWith("http")) cloneUrl = `https://${cloneUrl}`;
+    
+    // Embed token in URL if we have one (works for both public and private repos)
+    if (activeToken) {
+       cloneUrl = cloneUrl.replace("https://", `https://x-access-token:${activeToken}@`);
     }
-    const treeData = await treeRes.json();
-    const blobs: Array<{ path: string; url: string; size: number }> = (
-      treeData.tree ?? []
-    ).filter((item: any) => {
-      if (item.type !== "blob") return false;
-      if (!item.path) return false;
-      if (SKIP_PATTERNS.some((p) => p.test(item.path))) return false;
-      const ext = "." + item.path.split(".").pop()?.toLowerCase();
-      if (!TARGET_EXTENSIONS.has(ext)) return false;
-      if ((item.size ?? 0) > 100_000) return false; // skip files >100kb
-      return true;
-    });
 
-    // Prioritize smaller, more interesting files (routes, controllers, models)
-    const prioritized = blobs.sort((a, b) => {
-      const score = (p: string) => {
-        if (/route|controller|handler|view|model|schema|query/i.test(p)) return 0;
-        if (/service|middleware|auth|api/i.test(p)) return 1;
-        if (/util|helper|lib/i.test(p)) return 2;
-        return 3;
-      };
-      return score(a.path) - score(b.path);
-    });
+    try {
+      const git = simpleGit();
+      
+      // 2. Get remote HEAD SHA before cloning to check cache
+      const remoteInfo = await git.listRemote([cloneUrl, 'HEAD']);
+      const commitSha = remoteInfo ? remoteInfo.split('\t')[0] : "";
+      
+      if (!commitSha) {
+        return { files: [], error: "Could not determine remote commit SHA", repoName, commitSha: undefined };
+      }
 
-    const topFiles = prioritized.slice(0, 25);
+      // 3. Check cache by commit SHA
+      const cacheKey = `${repoUrl}:${commitSha}`;
+      if (cloneCache.has(cacheKey)) {
+        return cloneCache.get(cacheKey)!;
+      }
 
-    // Fetch contents in parallel (batched to 5 at a time)
-    const results: RepoFile[] = [];
-    for (let i = 0; i < topFiles.length; i += 5) {
-      const batch = topFiles.slice(i, i + 5);
-      const batchResults = await Promise.all(
-        batch.map(async (file) => {
-          try {
-            const res = await fetch(
-              `https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`,
-              { headers },
-            );
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (data.encoding === "base64" && data.content) {
-              const content = atob(data.content.replace(/\n/g, ""));
-              return { path: file.path, content, sha: data.sha };
-            }
-            return null;
-          } catch {
-            return null;
+      const workDir = `/tmp/scan/${runId}`;
+      const parentDir = path.dirname(workDir);
+      await fs.mkdir(parentDir, { recursive: true });
+
+      // Diagnostic check & cleanup before clone
+      try {
+        const stats = await fs.stat(workDir);
+        if (stats) {
+          const contents = await fs.readdir(workDir);
+          console.log(`[intake] Target dir ${workDir} exists prior to clone. Contents:`, contents);
+          await fs.rm(workDir, { recursive: true, force: true });
+        }
+      } catch {
+        console.log(`[intake] Target dir ${workDir} does not exist. Ready for git clone.`);
+      }
+
+      // Clone with retry pattern
+      let cloneAttempt = 0;
+      while (cloneAttempt < 2) {
+        try {
+          cloneAttempt++;
+          console.log(`[intake] Executing git clone (attempt ${cloneAttempt})...`);
+          await git.clone(cloneUrl, workDir, ['--depth', '1']);
+          break;
+        } catch (cloneErr: any) {
+          console.error(`[intake] Git clone attempt ${cloneAttempt} failed:`, cloneErr.message);
+          await fs.rm(workDir, { recursive: true, force: true });
+          if (cloneAttempt >= 2) throw cloneErr;
+        }
+      }
+
+      try {
+        // 5. Read all files from disk
+        const blobs: Array<{ path: string; size: number; fullPath: string }> = [];
+        
+        async function walkDir(dir: string) {
+          const entries = await fs.readdir(dir, { withFileTypes: true });
+          for (const entry of entries) {
+             if (SKIP_PATTERNS.some(p => p.test(entry.name))) continue;
+             
+             const fullPath = path.join(dir, entry.name);
+             if (entry.isDirectory()) {
+               await walkDir(fullPath);
+             } else {
+               const ext = "." + entry.name.split(".").pop()?.toLowerCase();
+               if (TARGET_EXTENSIONS.has(ext)) {
+                 const stat = await fs.stat(fullPath);
+                 if (stat.size <= 100_000) { // skip files >100kb
+                   const relativePath = path.relative(workDir, fullPath).replace(/\\/g, '/');
+                   blobs.push({ path: relativePath, size: stat.size, fullPath });
+                 }
+               }
+             }
           }
-        }),
-      );
-      results.push(...(batchResults.filter(Boolean) as RepoFile[]));
-    }
+        }
+        
+        await walkDir(workDir);
 
-    return { files: results, repoName };
-  } catch (err: any) {
-    return {
-      files: [],
-      error: `Network error: ${err?.message ?? String(err)}`,
-      repoName,
-    };
-  }
-}
+        // Prioritize smaller, more interesting files (routes, controllers, models)
+        const prioritized = blobs.sort((a, b) => {
+          const score = (p: string) => {
+            if (/route|controller|handler|view|model|schema|query/i.test(p)) return 0;
+            if (/service|middleware|auth|api/i.test(p)) return 1;
+            if (/util|helper|lib/i.test(p)) return 2;
+            return 3;
+          };
+          return score(a.path) - score(b.path);
+        });
+
+        const topFiles = prioritized.slice(0, 25);
+        const results: RepoFile[] = [];
+
+        for (const file of topFiles) {
+           try {
+             const content = await fs.readFile(file.fullPath, "utf-8");
+             results.push({ path: file.path, content, sha: commitSha });
+           } catch {
+             // Skip files that can't be read (e.g. symlinks, binary, etc.)
+           }
+        }
+
+        const response = { files: results, repoName, commitSha, error: undefined };
+        cloneCache.set(cacheKey, response);
+        
+        return response;
+      } finally {
+        // Ensure cleanup of workDir after reading files so temp disk usage doesn't grow
+        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch (err: any) {
+      return { files: [], error: `Clone error: ${err.message}`, repoName, commitSha: undefined };
+    }
+  });
 
 /**
  * Get just the file content map for patch context.
  */
 export function buildFileMap(files: RepoFile[]): Map<string, string> {
   return new Map(files.map((f) => [f.path, f.content]));
+}
+
+export interface GitHubRepoItem {
+  id: number;
+  name: string;
+  full_name: string;
+  html_url: string;
+  clone_url: string;
+  private: boolean;
+  description: string | null;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+}
+
+export async function fetchUserGitHubRepos(token: string): Promise<GitHubRepoItem[]> {
+  if (!token?.trim()) return [];
+  try {
+    const res = await fetch("https://api.github.com/user/repos?sort=updated&per_page=50", {
+      headers: {
+        Authorization: `Bearer ${token.trim()}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    });
+    if (!res.ok) {
+      console.warn("GitHub API error fetching repos:", res.statusText);
+      return [];
+    }
+    return (await res.json()) as GitHubRepoItem[];
+  } catch (err) {
+    console.error("Failed to fetch user GitHub repos:", err);
+    return [];
+  }
 }

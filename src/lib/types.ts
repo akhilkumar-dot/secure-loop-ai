@@ -15,7 +15,9 @@ export type FindingStatus =
   | "patched"
   | "validated"
   | "accepted"
-  | "rejected";
+  | "rejected"
+  | "likely_false_positive"
+  | "dismissed";
 
 /**
  * A single line in a unified diff view.

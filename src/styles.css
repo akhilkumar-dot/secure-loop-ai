@@ -59,15 +59,24 @@
   --radius: 0.5rem;
 
   /* Core palette (from design reference) */
-  --bg: oklch(0.1448 0 89.88); /* #0A0A0A */
-  --bg-elevated: oklch(0.1822 0 89.88); /* #121212 */
-  --border: oklch(0.2686 0 89.88); /* #262626 */
-  --text-primary: oklch(0.9575 0.0067 97.35); /* #F2F1EC */
-  --text-secondary: oklch(0.6386 0.0073 106.61); /* #8C8C87 */
-  --accent: oklch(0.686 0.2058 35.01); /* #FF5C33 */
-  --success: oklch(0.7624 0.1544 159.36); /* #3ECF8E */
-  --danger: oklch(0.6909 0.1987 23.91); /* #FF5C5C */
-  --warning: oklch(0.8 0.15 80); /* amber for warnings */
+  --bg: oklch(0.1448 0 89.88);
+  /* #0A0A0A */
+  --bg-elevated: oklch(0.1822 0 89.88);
+  /* #121212 */
+  --border: oklch(0.2686 0 89.88);
+  /* #262626 */
+  --text-primary: oklch(0.9575 0.0067 97.35);
+  /* #F2F1EC */
+  --text-secondary: oklch(0.6386 0.0073 106.61);
+  /* #8C8C87 */
+  --accent: oklch(0.686 0.2058 35.01);
+  /* #FF5C33 */
+  --success: oklch(0.7624 0.1544 159.36);
+  /* #3ECF8E */
+  --danger: oklch(0.6909 0.1987 23.91);
+  /* #FF5C5C */
+  --warning: oklch(0.8 0.15 80);
+  /* amber for warnings */
 
   /* shadcn aliases mapped onto the palette */
   --background: var(--bg);
@@ -97,6 +106,7 @@
 
   html {
     scroll-behavior: smooth;
+    zoom: 0.958;
   }
 
   body {
@@ -115,13 +125,16 @@
     width: 10px;
     height: 10px;
   }
+
   ::-webkit-scrollbar-track {
     background: var(--bg);
   }
+
   ::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 8px;
   }
+
   ::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklab, var(--border) 60%, var(--text-secondary));
   }
@@ -129,11 +142,9 @@
 
 /* Faint dot-grid backdrop used in hero / CTA bands — flat, never a gradient mesh */
 @utility bg-dot-grid {
-  background-image: radial-gradient(
-    circle,
-    color-mix(in oklab, var(--border) 80%, transparent) 1px,
-    transparent 1px
-  );
+  background-image: radial-gradient(circle,
+      color-mix(in oklab, var(--border) 80%, transparent) 1px,
+      transparent 1px);
   background-size: 26px 26px;
 }
 
@@ -153,6 +164,7 @@
     border-color 150ms ease,
     box-shadow 150ms ease,
     color 150ms ease;
+
   &:hover {
     border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
     box-shadow: 0 0 22px color-mix(in oklab, var(--accent) 18%, transparent);
