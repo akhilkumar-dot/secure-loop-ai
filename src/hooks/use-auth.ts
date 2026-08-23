@@ -103,6 +103,9 @@ export function useAuth() {
       options: {
         redirectTo: `${window.location.origin}/dashboard`,
         scopes: "repo read:user user:email",
+        queryParams: {
+          prompt: "consent",
+        },
       },
     });
     return { data, error };
