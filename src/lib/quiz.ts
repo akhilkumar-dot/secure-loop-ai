@@ -55,7 +55,8 @@ export const QUIZ_DATA: Record<VulnClass, QuizQuestion> = {
     correctIndex: 1,
   },
   other: {
-    question: "Which of the following correctly prevents command injection when running an OS process?",
+    question:
+      "Which of the following correctly prevents command injection when running an OS process?",
     options: [
       "Escaping shell metacharacters with a regex before passing to exec()",
       "Using a fixed argument array (e.g. execFile(['cmd', arg])) so no shell is invoked",

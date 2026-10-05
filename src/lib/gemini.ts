@@ -22,7 +22,9 @@ export class QuotaExceededError extends Error {
 // In-memory cache for explanations of identical rule/message patterns within a run
 const explanationCache = new Map<string, GeminiExplanation>();
 
-function getProvider(apiKeyOverride?: string): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
+function getProvider(
+  apiKeyOverride?: string,
+): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
   const geminiEnv =
     (typeof process !== "undefined" && (process as any).env?.["GEMINI_API_KEY"]) ||
     (import.meta as any).env?.VITE_GEMINI_API_KEY ||
@@ -38,14 +40,13 @@ function getProvider(apiKeyOverride?: string): OpenAIProvider | CohereProvider |
     (import.meta as any).env?.VITE_OPENROUTER_API_KEY ||
     "";
 
-  const effective = (apiKeyOverride && apiKeyOverride.trim()) || geminiEnv || openaiEnv || openrouterEnv;
+  const effective =
+    (apiKeyOverride && apiKeyOverride.trim()) || geminiEnv || openaiEnv || openrouterEnv;
 
   // Gemini API keys start with "AQ." (Google AI Studio) or "AIza" (legacy) or match Gemini env
   if (
     effective &&
-    (effective.startsWith("AQ.") ||
-      effective.startsWith("AIza") ||
-      effective === geminiEnv)
+    (effective.startsWith("AQ.") || effective.startsWith("AIza") || effective === geminiEnv)
   ) {
     return new GeminiProvider(effective);
   }
@@ -123,9 +124,7 @@ export async function analyzeCodeForVulnerabilities(
 ): Promise<GeminiFinding[]> {
   const provider = getProvider(apiKeyOverride);
 
-  const fileBlocks = files
-    .map((f) => `--- FILE: ${f.path} ---\n${f.content}`)
-    .join("\n\n");
+  const fileBlocks = files.map((f) => `--- FILE: ${f.path} ---\n${f.content}`).join("\n\n");
 
   const prompt = `You are a static code security analyzer. Analyze the provided source code for real security vulnerabilities (SQLi, XSS, CSRF, insecure deserialization, command injection, path traversal, hardcoded secrets).
 
@@ -189,9 +188,7 @@ export async function generateExplanation(
 
   const provider = getProvider(apiKeyOverride);
 
-  const codeContext = finding.code_lines
-    ?.map((l) => `${l.n}: ${l.code}`)
-    .join("\n") ?? "";
+  const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
   const prompt = `You are a secure code educator. Analyze and explain the following security vulnerability.
 
@@ -238,7 +235,8 @@ Return ONLY valid JSON with this schema:
     if (isExhausted) {
       return {
         what_it_is: "AI rate limit or quota exceeded.",
-        why_it_happened: "Rate limit reached during scan. Re-run scan later or check your API key in Settings.",
+        why_it_happened:
+          "Rate limit reached during scan. Re-run scan later or check your API key in Settings.",
         owasp_category: "Quota Exceeded",
         how_fix_works: "Re-run scan later or provide a valid API key in Settings.",
         error_type: "transient_error",
@@ -276,9 +274,7 @@ export async function generatePatch(
 ): Promise<GeminiPatch> {
   const provider = getProvider(apiKeyOverride);
 
-  const codeContext = finding.code_lines
-    ?.map((l) => `${l.n}: ${l.code}`)
-    .join("\n") ?? "";
+  const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
   const fileCtx = fullFileContent
     ? `\nFull file context (first 3000 chars):\n${fullFileContent.slice(0, 3000)}`
@@ -344,9 +340,7 @@ export async function validatePatch(
 ): Promise<GeminiValidation> {
   const provider = getProvider(apiKeyOverride);
 
-  const originalCode = finding.code_lines
-    ?.map((l) => `${l.n}: ${l.code}`)
-    .join("\n") ?? "";
+  const originalCode = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
   const prompt = `You are a security code reviewer validating a patch. Determine if this patch correctly fixes the vulnerability without introducing new issues.
 

@@ -232,7 +232,8 @@ const ruleXssTemplate: Rule = (lines, fp) => {
 /* ── Rule 14: Java — SQL injection via string concatenation in query ─────── */
 const ruleJavaSqlInjection: Rule = (lines, fp) => {
   const out: SastFinding[] = [];
-  const javaSqlRe = /(?:createQuery|createNativeQuery|executeQuery|jdbcTemplate\.query|jdbcTemplate\.update)\s*\(/;
+  const javaSqlRe =
+    /(?:createQuery|createNativeQuery|executeQuery|jdbcTemplate\.query|jdbcTemplate\.update)\s*\(/;
   const concatRe = /\+\s*\w+|`[^`]*\$\{/;
   // Require evidence of user input in a ±15 line window to reduce FP
   const userInputJava = /request\.getParameter|@RequestParam|@PathVariable|getHeader|getBody/;
@@ -338,6 +339,7 @@ const ruleJavaCsrfDisabled: Rule = (lines, fp) => {
         matched_text: line.trim(),
         code_lines: mkCodeLines(lines, i, 2),
         source: "sast",
+        confidence: "high",
       });
     }
   }
@@ -353,8 +355,7 @@ const ruleCsrf: Rule = (lines, fp, repoContext?: string) => {
   const csrfCheck = /csrfToken|csrf\(|csurf|req\.csrfToken|x-csrf/i;
   // Check current file AND the full repo context for CSRF middleware
   const hasCsrfMiddleware =
-    lines.some((l) => csrfCheck.test(l)) ||
-    (repoContext ? csrfCheck.test(repoContext) : false);
+    lines.some((l) => csrfCheck.test(l)) || (repoContext ? csrfCheck.test(repoContext) : false);
   if (hasCsrfMiddleware) return out; // repo already uses CSRF protection
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -401,12 +402,14 @@ const ruleInsecureSession: Rule = (lines, fp) => {
         matched_text: lines[i]!.trim(),
         code_lines: mkCodeLines(lines, i, 3),
         source: "sast",
+        confidence: "high",
       });
     }
 
     if (!/httpOnly\s*:\s*true/.test(block)) {
       out.push({
-        rule_id: "javascript.express.security.audit.session.session-no-httponly.session-no-httponly",
+        rule_id:
+          "javascript.express.security.audit.session.session-no-httponly.session-no-httponly",
         cwe: "CWE-1004",
         severity: "medium",
         vulnerability_class: "other",
@@ -418,13 +421,15 @@ const ruleInsecureSession: Rule = (lines, fp) => {
         matched_text: lines[i]!.trim(),
         code_lines: mkCodeLines(lines, i, 3),
         source: "sast",
+        confidence: "medium",
       });
     }
 
     // Weak/hardcoded secret
     if (/secret\s*:\s*['"`][^'"`]{1,20}['"`]/.test(block)) {
       out.push({
-        rule_id: "javascript.express.security.audit.session.session-hardcoded-secret.session-hardcoded-secret",
+        rule_id:
+          "javascript.express.security.audit.session.session-hardcoded-secret.session-hardcoded-secret",
         cwe: "CWE-331",
         severity: "high",
         vulnerability_class: "other",
@@ -436,13 +441,15 @@ const ruleInsecureSession: Rule = (lines, fp) => {
         matched_text: lines[i]!.trim(),
         code_lines: mkCodeLines(lines, i, 3),
         source: "sast",
+        confidence: "high",
       });
     }
 
     // MemoryStore (default — leaks in production)
     if (!/store\s*:/.test(block)) {
       out.push({
-        rule_id: "javascript.express.security.audit.session.session-memory-store.session-memory-store",
+        rule_id:
+          "javascript.express.security.audit.session.session-memory-store.session-memory-store",
         cwe: "CWE-400",
         severity: "medium",
         vulnerability_class: "other",
@@ -454,6 +461,7 @@ const ruleInsecureSession: Rule = (lines, fp) => {
         matched_text: lines[i]!.trim(),
         code_lines: mkCodeLines(lines, i, 3),
         source: "sast",
+        confidence: "medium",
       });
     }
     break; // one session block per file
@@ -483,6 +491,7 @@ const ruleSqlInjection: Rule = (lines, fp) => {
         matched_text: line.trim(),
         code_lines: mkCodeLines(lines, i, 3),
         source: "sast",
+        confidence: "high",
       });
     }
   }
@@ -725,9 +734,7 @@ export function scanFile(filePath: string, content: string): SastFinding[] {
  * Run SAST across all repo files.
  * Returns findings sorted by severity then file path.
  */
-export function runSast(
-  files: Array<{ path: string; content: string }>,
-): SastFinding[] {
+export function runSast(files: Array<{ path: string; content: string }>): SastFinding[] {
   const SEVERITY_ORDER: Record<string, number> = {
     critical: 0,
     high: 1,

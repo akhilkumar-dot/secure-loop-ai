@@ -11,12 +11,28 @@ export interface RepoFile {
 
 // Extensions we care about for security analysis
 const TARGET_EXTENSIONS = new Set([
-  ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-  ".py", ".rb", ".php", ".java", ".go", ".cs",
-  ".sql", ".graphql",
-  ".html", ".htm", ".ejs", ".hbs",
-  ".env.example", ".env.sample",
-  ".yml", ".yaml",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".rb",
+  ".php",
+  ".java",
+  ".go",
+  ".cs",
+  ".sql",
+  ".graphql",
+  ".html",
+  ".htm",
+  ".ejs",
+  ".hbs",
+  ".env.example",
+  ".env.sample",
+  ".yml",
+  ".yaml",
 ]);
 
 // Paths to skip
@@ -53,7 +69,10 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
 import { createServerFn } from "@tanstack/react-start";
 
 // In-memory cache keyed by "owner/repo:commitSha"
-const repoCache = new Map<string, { files: RepoFile[]; repoName: string; commitSha: string; error: undefined }>();
+const repoCache = new Map<
+  string,
+  { files: RepoFile[]; repoName: string; commitSha: string; error: undefined }
+>();
 
 const GITHUB_API = "https://api.github.com";
 
@@ -84,23 +103,29 @@ export const fetchRepoFiles = createServerFn({ method: "POST" })
       // 1. Get default branch HEAD commit SHA
       const repoRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
       if (!repoRes.ok) {
-        const msg = repoRes.status === 404
-          ? "Repository not found (check URL and token for private repos)"
-          : `GitHub API error: ${repoRes.status} ${repoRes.statusText}`;
+        const msg =
+          repoRes.status === 404
+            ? "Repository not found (check URL and token for private repos)"
+            : `GitHub API error: ${repoRes.status} ${repoRes.statusText}`;
         return { files: [], error: msg, repoName, commitSha: undefined };
       }
-      const repoData = await repoRes.json() as { default_branch: string };
+      const repoData = (await repoRes.json()) as { default_branch: string };
       const defaultBranch = repoData.default_branch ?? "main";
 
       // 2. Get the commit SHA for the default branch
       const branchRes = await fetch(
         `${GITHUB_API}/repos/${owner}/${repo}/branches/${defaultBranch}`,
-        { headers }
+        { headers },
       );
       if (!branchRes.ok) {
-        return { files: [], error: `Could not fetch branch info: ${branchRes.statusText}`, repoName, commitSha: undefined };
+        return {
+          files: [],
+          error: `Could not fetch branch info: ${branchRes.statusText}`,
+          repoName,
+          commitSha: undefined,
+        };
       }
-      const branchData = await branchRes.json() as { commit: { sha: string } };
+      const branchData = (await branchRes.json()) as { commit: { sha: string } };
       const commitSha: string = branchData.commit.sha;
 
       // 3. Check cache
@@ -113,12 +138,17 @@ export const fetchRepoFiles = createServerFn({ method: "POST" })
       // 4. Fetch the full file tree (recursive)
       const treeRes = await fetch(
         `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitSha}?recursive=1`,
-        { headers }
+        { headers },
       );
       if (!treeRes.ok) {
-        return { files: [], error: `Could not fetch repo tree: ${treeRes.statusText}`, repoName, commitSha };
+        return {
+          files: [],
+          error: `Could not fetch repo tree: ${treeRes.statusText}`,
+          repoName,
+          commitSha,
+        };
       }
-      const treeData = await treeRes.json() as {
+      const treeData = (await treeRes.json()) as {
         tree: Array<{ path: string; type: string; size?: number; sha: string }>;
         truncated: boolean;
       };
@@ -144,9 +174,7 @@ export const fetchRepoFiles = createServerFn({ method: "POST" })
         if (/util|helper|lib/i.test(p)) return 2;
         return 3;
       };
-      const prioritized = eligible
-        .sort((a, b) => score(a.path) - score(b.path))
-        .slice(0, 25);
+      const prioritized = eligible.sort((a, b) => score(a.path) - score(b.path)).slice(0, 25);
 
       // 7. Fetch file contents in parallel (base64 blobs via contents API)
       const results: RepoFile[] = [];
@@ -155,28 +183,37 @@ export const fetchRepoFiles = createServerFn({ method: "POST" })
           try {
             const contentRes = await fetch(
               `${GITHUB_API}/repos/${owner}/${repo}/contents/${item.path}?ref=${commitSha}`,
-              { headers }
+              { headers },
             );
             if (!contentRes.ok) return;
-            const contentData = await contentRes.json() as { content?: string; encoding?: string };
+            const contentData = (await contentRes.json()) as {
+              content?: string;
+              encoding?: string;
+            };
             if (contentData.encoding === "base64" && contentData.content) {
               // Decode base64 content — works in both Node.js and edge runtimes
-              const decoded = typeof Buffer !== "undefined"
-                ? Buffer.from(contentData.content.replace(/\n/g, ""), "base64").toString("utf-8")
-                : atob(contentData.content.replace(/\n/g, ""));
+              const decoded =
+                typeof Buffer !== "undefined"
+                  ? Buffer.from(contentData.content.replace(/\n/g, ""), "base64").toString("utf-8")
+                  : atob(contentData.content.replace(/\n/g, ""));
               results.push({ path: item.path, content: decoded, sha: item.sha });
             }
           } catch (e) {
             console.warn(`[intake] Failed to fetch ${item.path}:`, e);
           }
-        })
+        }),
       );
 
       const response = { files: results, repoName, commitSha, error: undefined };
       repoCache.set(cacheKey, response);
       return response;
     } catch (err: any) {
-      return { files: [], error: `GitHub API error: ${err.message}`, repoName, commitSha: undefined };
+      return {
+        files: [],
+        error: `GitHub API error: ${err.message}`,
+        repoName,
+        commitSha: undefined,
+      };
     }
   });
 

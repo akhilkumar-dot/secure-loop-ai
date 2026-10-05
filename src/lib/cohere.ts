@@ -7,11 +7,7 @@ export class CohereProvidersExhaustedError extends Error {
   isExhausted = true;
   constructor(stage: string, errors: Record<string, string>) {
     super(
-      `All Cohere models for stage '${stage}' failed. Details: ${JSON.stringify(
-        errors,
-        null,
-        2,
-      )}`,
+      `All Cohere models for stage '${stage}' failed. Details: ${JSON.stringify(errors, null, 2)}`,
     );
     this.name = "CohereProvidersExhaustedError";
   }
@@ -40,11 +36,7 @@ export const DEFAULT_COHERE_STAGE_MODELS: Record<StageName, string[]> = {
     "command-r-08-2024",
     "command-nightly",
   ],
-  default: [
-    "command-r-plus",
-    "command-r",
-    "command-nightly",
-  ],
+  default: ["command-r-plus", "command-r", "command-nightly"],
 };
 
 export class CohereProvider {

@@ -21,12 +21,8 @@ export function useAuth() {
           const updates: any = {
             id: sess.user.id,
             display_name:
-              (sess.user.user_metadata as Record<string, any>)?.[
-                "full_name"
-              ] ||
-              (sess.user.user_metadata as Record<string, any>)?.[
-                "preferred_username"
-              ] ||
+              (sess.user.user_metadata as Record<string, any>)?.["full_name"] ||
+              (sess.user.user_metadata as Record<string, any>)?.["preferred_username"] ||
               sess.user.email,
             updated_at: new Date().toISOString(),
           };
@@ -73,17 +69,14 @@ export function useAuth() {
     };
   }, []);
 
-  const signUp = useCallback(
-    async (email: string, password: string, displayName?: string) => {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { display_name: displayName } },
-      });
-      return { data, error };
-    },
-    [],
-  );
+  const signUp = useCallback(async (email: string, password: string, displayName?: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { display_name: displayName } },
+    });
+    return { data, error };
+  }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -115,5 +108,16 @@ export function useAuth() {
   const isGitHubAuth = user?.app_metadata?.provider === "github";
   const githubUser = isGitHubAuth ? user?.user_metadata : null;
 
-  return { user, session, loading, signUp, signIn, signOut, signInWithGitHub, providerToken, isGitHubAuth, githubUser };
+  return {
+    user,
+    session,
+    loading,
+    signUp,
+    signIn,
+    signOut,
+    signInWithGitHub,
+    providerToken,
+    isGitHubAuth,
+    githubUser,
+  };
 }

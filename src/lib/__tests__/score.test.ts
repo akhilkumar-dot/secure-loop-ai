@@ -17,9 +17,7 @@ describe("computeScore", () => {
   });
 
   it("deducts from the correct category for sqli finding", () => {
-    const findings = [
-      { vulnerability_class: "sqli", severity: "critical", status: "open" },
-    ];
+    const findings = [{ vulnerability_class: "sqli", severity: "critical", status: "open" }];
     const score = computeScore(findings);
     expect(score.sqli).toBeLessThan(100);
     expect(score.xss).toBe(100); // unaffected
@@ -36,9 +34,7 @@ describe("computeScore", () => {
   });
 
   it("does NOT deduct for developer-accepted findings", () => {
-    const findings = [
-      { vulnerability_class: "sqli", severity: "critical", status: "accepted" },
-    ];
+    const findings = [{ vulnerability_class: "sqli", severity: "critical", status: "accepted" }];
     const score = computeScore(findings);
     expect(score.sqli).toBe(100);
     expect(score.overall).toBe(100);
@@ -69,7 +65,9 @@ describe("computeScore", () => {
       { vulnerability_class: "sqli", severity: "critical", status: "open" }, // -25
     ];
     const score = computeScore(findings);
-    const expected = Math.round((score.sqli + score.xss + score.csrf + score.deserialization + score.other) / 5);
+    const expected = Math.round(
+      (score.sqli + score.xss + score.csrf + score.deserialization + score.other) / 5,
+    );
     expect(score.overall).toBe(expected);
   });
 });

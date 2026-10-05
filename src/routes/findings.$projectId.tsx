@@ -45,11 +45,7 @@ function FindingsPage() {
   }, [user, projectId]);
 
   async function fetchProject() {
-    const { data } = await supabase
-      .from("projects")
-      .select("name")
-      .eq("id", projectId)
-      .single();
+    const { data } = await supabase.from("projects").select("name").eq("id", projectId).single();
     if (data) setProject(data);
   }
 
@@ -117,37 +113,33 @@ function FindingsPage() {
           <span className="font-mono text-[10px] uppercase tracking-wider text-subtle mr-2">
             filter:
           </span>
-          {(["all", "sqli", "xss", "csrf", "insecure_deserialization"] as const).map(
-            (cls) => (
-              <button
-                key={cls}
-                onClick={() => setFilterClass(cls as VulnClass | "all")}
-                className={`rounded-full border px-3 py-1 font-mono text-[11px] cursor-pointer transition-colors ${
-                  filterClass === cls
-                    ? "border-accent/50 bg-accent/10 text-foreground"
-                    : "border-border text-subtle hover:text-foreground"
-                }`}
-              >
-                {cls === "all" ? "all classes" : vulnClassLabels[cls]}
-              </button>
-            ),
-          )}
+          {(["all", "sqli", "xss", "csrf", "insecure_deserialization"] as const).map((cls) => (
+            <button
+              key={cls}
+              onClick={() => setFilterClass(cls as VulnClass | "all")}
+              className={`rounded-full border px-3 py-1 font-mono text-[11px] cursor-pointer transition-colors ${
+                filterClass === cls
+                  ? "border-accent/50 bg-accent/10 text-foreground"
+                  : "border-border text-subtle hover:text-foreground"
+              }`}
+            >
+              {cls === "all" ? "all classes" : vulnClassLabels[cls]}
+            </button>
+          ))}
           <span className="mx-1 text-border">|</span>
-          {(["all", "open", "validated", "accepted", "rejected"] as const).map(
-            (st) => (
-              <button
-                key={st}
-                onClick={() => setFilterStatus(st as FindingStatus | "all")}
-                className={`rounded-full border px-3 py-1 font-mono text-[11px] cursor-pointer transition-colors ${
-                  filterStatus === st
-                    ? "border-accent/50 bg-accent/10 text-foreground"
-                    : "border-border text-subtle hover:text-foreground"
-                }`}
-              >
-                {st}
-              </button>
-            ),
-          )}
+          {(["all", "open", "validated", "accepted", "rejected"] as const).map((st) => (
+            <button
+              key={st}
+              onClick={() => setFilterStatus(st as FindingStatus | "all")}
+              className={`rounded-full border px-3 py-1 font-mono text-[11px] cursor-pointer transition-colors ${
+                filterStatus === st
+                  ? "border-accent/50 bg-accent/10 text-foreground"
+                  : "border-border text-subtle hover:text-foreground"
+              }`}
+            >
+              {st}
+            </button>
+          ))}
         </div>
 
         {/* Findings table */}
@@ -200,15 +192,11 @@ function FindingsPage() {
                         <SeverityBadge severity={f.severity} />
                       </td>
                       <td className="px-5 py-3.5 text-subtle">
-                        {f.vulnerability_class
-                          ? vulnClassLabels[f.vulnerability_class]
-                          : "—"}
+                        {f.vulnerability_class ? vulnClassLabels[f.vulnerability_class] : "—"}
                       </td>
                       <td className="px-5 py-3.5 text-foreground/80">
                         {f.file_path}
-                        {f.line_start && (
-                          <span className="text-subtle">:{f.line_start}</span>
-                        )}
+                        {f.line_start && <span className="text-subtle">:{f.line_start}</span>}
                       </td>
                       <td className="px-5 py-3.5 text-subtle">{f.cwe ?? "—"}</td>
                       <td className="px-5 py-3.5">

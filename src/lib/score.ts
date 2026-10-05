@@ -95,11 +95,11 @@ export function computeScore(findings: FindingRow[]): ScoreBreakdown {
     void patchVerdict; // used for future per-category crediting
   }
 
-  const sqli = Math.max(0, 100 - deductions.sqli!);
-  const xss = Math.max(0, 100 - deductions.xss!);
-  const csrf = Math.max(0, 100 - deductions.csrf!);
-  const deserialization = Math.max(0, 100 - deductions.deserialization!);
-  const other = Math.max(0, 100 - deductions.other!);
+  const sqli = Math.max(0, 100 - (deductions["sqli"] ?? 0));
+  const xss = Math.max(0, 100 - (deductions["xss"] ?? 0));
+  const csrf = Math.max(0, 100 - (deductions["csrf"] ?? 0));
+  const deserialization = Math.max(0, 100 - (deductions["deserialization"] ?? 0));
+  const other = Math.max(0, 100 - (deductions["other"] ?? 0));
   const overall = Math.round((sqli + xss + csrf + deserialization + other) / 5);
 
   return { overall, sqli, xss, csrf, deserialization, other };

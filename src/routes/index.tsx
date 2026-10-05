@@ -13,13 +13,7 @@ import {
   ScanSearch,
   ShieldCheck,
 } from "lucide-react";
-import {
-  Eyebrow,
-  Logo,
-  Pill,
-  PillLink,
-  TerminalWindow,
-} from "@/components/chrome";
+import { Eyebrow, Logo, Pill, PillLink, TerminalWindow } from "@/components/chrome";
 import { useAuth } from "@/hooks/use-auth";
 
 export const Route = createFileRoute("/")({
@@ -140,13 +134,15 @@ function Hero() {
     <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,black,transparent)]" />
       <div className="relative mx-auto max-w-6xl px-6 pt-24 pb-16 text-center md:pt-32">
-        <Eyebrow className="mb-6">closed-loop secure code review · powered by OpenRouter AI</Eyebrow>
+        <Eyebrow className="mb-6">
+          closed-loop secure code review · powered by OpenRouter AI
+        </Eyebrow>
         <h1 className="mx-auto max-w-3xl font-display text-4xl font-semibold leading-[1.1] tracking-tight md:text-6xl">
           Ship secure code, not just detected bugs.
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-subtle">
-          SecureLoop fetches your GitHub repo, analyzes every file with OpenRouter multi-model fallbacks,
-          explains each vulnerability in plain language, generates a patch — and
+          SecureLoop fetches your GitHub repo, analyzes every file with OpenRouter multi-model
+          fallbacks, explains each vulnerability in plain language, generates a patch — and
           validates it before it ever reaches you.
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -200,10 +196,7 @@ function TrustStrip() {
         <Eyebrow className="text-center">powered by</Eyebrow>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4">
           {items.map((name) => (
-            <span
-              key={name}
-              className="font-mono text-sm font-medium tracking-wide text-subtle/70"
-            >
+            <span key={name} className="font-mono text-sm font-medium tracking-wide text-subtle/70">
               {name}
             </span>
           ))}
@@ -265,11 +258,10 @@ function ValidateSection() {
             Every patch is re-validated by AI before you ever see it.
           </h2>
           <p className="mt-5 leading-relaxed text-subtle">
-            LLMs write plausible-looking patches that often don't fix the bug
-            or introduce new issues. SecureLoop sends each patch back to OpenRouter
-            for a full validation pass — checking whether the vulnerability is
-            gone, tests would pass, and no new issues were introduced. A patch
-            only reaches your review queue when it passes all checks.
+            LLMs write plausible-looking patches that often don't fix the bug or introduce new
+            issues. SecureLoop sends each patch back to OpenRouter for a full validation pass —
+            checking whether the vulnerability is gone, tests would pass, and no new issues were
+            introduced. A patch only reaches your review queue when it passes all checks.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-2 font-mono text-[11px]">
             {["detected", "explained", "patch_generated", "validating", "validated"].map(
@@ -278,9 +270,7 @@ function ValidateSection() {
                   <span className="rounded-full border border-border px-3 py-1 text-subtle">
                     {s}
                   </span>
-                  {i < arr.length - 1 && (
-                    <ArrowRight className="size-3 text-subtle/50" />
-                  )}
+                  {i < arr.length - 1 && <ArrowRight className="size-3 text-subtle/50" />}
                 </span>
               ),
             )}
@@ -289,12 +279,16 @@ function ValidateSection() {
         <TerminalWindow title="validation — patch-8f2c1">
           <div className="text-subtle">$ secureloop validate patch-8f2c1</div>
           <div className="text-accent">▸ applying diff to patched code…</div>
-          <div className="text-foreground/80">▸ openrouter: re-analyzing for original vulnerability</div>
-          <div className="text-success">  ✓ original vulnerability no longer present</div>
-          <div className="text-foreground/80">▸ openrouter: checking for newly introduced issues</div>
-          <div className="text-success">  ✓ 0 new findings introduced</div>
+          <div className="text-foreground/80">
+            ▸ openrouter: re-analyzing for original vulnerability
+          </div>
+          <div className="text-success"> ✓ original vulnerability no longer present</div>
+          <div className="text-foreground/80">
+            ▸ openrouter: checking for newly introduced issues
+          </div>
+          <div className="text-success"> ✓ 0 new findings introduced</div>
           <div className="text-foreground/80">▸ openrouter: validating test safety</div>
-          <div className="text-success">  ✓ tests would pass</div>
+          <div className="text-success"> ✓ tests would pass</div>
           <div className="mt-2 border-t border-border pt-2 text-success">
             verdict: ACCEPTED — ready for developer review
           </div>
@@ -316,11 +310,11 @@ function LearnSection() {
             Why do parameterized queries prevent SQL injection?
           </div>
           <div className="mt-3 space-y-1.5">
-            <div className="text-subtle">  a) they encrypt the input</div>
+            <div className="text-subtle"> a) they encrypt the input</div>
             <div className="text-success">
               {"  b) the query is parsed before data is bound ✓ correct"}
             </div>
-            <div className="text-subtle">  c) they strip all quotes</div>
+            <div className="text-subtle"> c) they strip all quotes</div>
           </div>
           <div className="mt-4 border-t border-border pt-3">
             <span className="text-subtle">security score</span>{" "}
@@ -336,10 +330,9 @@ function LearnSection() {
             Fixes that teach, not fixes that hide.
           </h2>
           <p className="mt-5 leading-relaxed text-subtle">
-            Every accepted or rejected patch ends with a 60-second interactive
-            check on the vulnerability class you just touched. Answers feed a
-            per-category security score — SQLi, XSS, CSRF, deserialization — so
-            you can watch your secure-coding instincts trend upward.
+            Every accepted or rejected patch ends with a 60-second interactive check on the
+            vulnerability class you just touched. Answers feed a per-category security score — SQLi,
+            XSS, CSRF, deserialization — so you can watch your secure-coding instincts trend upward.
           </p>
           <div className="mt-7">
             <PillLink to="/score" variant="outline">
@@ -358,7 +351,14 @@ const comparison = [
   { approach: "Semgrep only", detect: true, explain: false, patch: false, validate: "—" },
   { approach: "LLM only", detect: true, explain: true, patch: true, validate: "✗" },
   { approach: "Semgrep + LLM", detect: true, explain: true, patch: true, validate: "partial" },
-  { approach: "SecureLoop", detect: true, explain: true, patch: true, validate: "✓", highlight: true },
+  {
+    approach: "SecureLoop",
+    detect: true,
+    explain: true,
+    patch: true,
+    validate: "✓",
+    highlight: true,
+  },
 ];
 
 function ComparisonSection() {
@@ -399,13 +399,7 @@ function ComparisonSection() {
                   <td className="px-5 py-3.5">{row.detect ? "✓" : "✗"}</td>
                   <td className="px-5 py-3.5">{row.explain ? "✓" : "✗"}</td>
                   <td className="px-5 py-3.5">{row.patch ? "✓" : "✗"}</td>
-                  <td
-                    className={
-                      row.validate === "✓"
-                        ? "px-5 py-3.5 text-success"
-                        : "px-5 py-3.5"
-                    }
-                  >
+                  <td className={row.validate === "✓" ? "px-5 py-3.5 text-success" : "px-5 py-3.5"}>
                     {row.validate}
                   </td>
                 </tr>
@@ -414,8 +408,8 @@ function ComparisonSection() {
           </table>
         </div>
         <p className="mt-4 font-mono text-[11px] text-subtle">
-          every secureloop run logs detection, patch-success, and acceptance
-          metrics — visible on your dashboard.
+          every secureloop run logs detection, patch-success, and acceptance metrics — visible on
+          your dashboard.
         </p>
       </div>
     </section>
@@ -527,9 +521,7 @@ function Faq() {
                   <Plus className="size-4 shrink-0 text-subtle" />
                 )}
               </button>
-              {open === i && (
-                <p className="pb-6 text-sm leading-relaxed text-subtle">{f.a}</p>
-              )}
+              {open === i && <p className="pb-6 text-sm leading-relaxed text-subtle">{f.a}</p>}
             </div>
           ))}
         </div>

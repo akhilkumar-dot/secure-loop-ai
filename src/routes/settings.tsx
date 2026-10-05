@@ -34,11 +34,7 @@ function SettingsPage() {
 
   async function fetchProfile() {
     setLoadingProfile(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user!.id)
-      .single();
+    const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).single();
     if (data) {
       setDisplayName((data as any).display_name ?? "");
       setGithubToken((data as any).github_token ?? "");
@@ -53,16 +49,14 @@ function SettingsPage() {
     setSaving(true);
     setError(null);
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        id: user.id,
-        display_name: displayName,
-        github_token: githubToken || null,
-        gemini_api_key: geminiKey || null,
-        llm_provider: llmProvider,
-        updated_at: new Date().toISOString(),
-      });
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
+      display_name: displayName,
+      github_token: githubToken || null,
+      gemini_api_key: geminiKey || null,
+      llm_provider: llmProvider,
+      updated_at: new Date().toISOString(),
+    });
 
     if (error) {
       setError(error.message);
@@ -100,9 +94,7 @@ function SettingsPage() {
         <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
           account settings
         </p>
-        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
-          Settings
-        </h1>
+        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">Settings</h1>
 
         <div className="mt-8 space-y-6">
           {/* Account */}
@@ -137,9 +129,9 @@ function SettingsPage() {
               >
                 Google Gemini
               </a>{" "}
-              (powered by gemini-3.8-flash with automatic multi-model failover) to analyze code, explain
-              vulnerabilities, generate patches, and validate fixes. You can also provide an OpenRouter or OpenAI key.
-              Your key is stored encrypted in Supabase and never shared.
+              (powered by gemini-3.8-flash with automatic multi-model failover) to analyze code,
+              explain vulnerabilities, generate patches, and validate fixes. You can also provide an
+              OpenRouter or OpenAI key. Your key is stored encrypted in Supabase and never shared.
             </p>
             <Field label="Gemini API key (Google AI Studio)">
               <input
@@ -159,7 +151,8 @@ function SettingsPage() {
                 >
                   aistudio.google.com/app/apikey
                 </a>
-                . Keys starting with <code className="text-foreground">AQ.</code> or <code className="text-foreground">AIza</code> are routed to Google Gemini.
+                . Keys starting with <code className="text-foreground">AQ.</code> or{" "}
+                <code className="text-foreground">AIza</code> are routed to Google Gemini.
               </p>
             </Field>
           </Section>
@@ -167,8 +160,8 @@ function SettingsPage() {
           {/* GitHub */}
           <Section title="github integration">
             <p className="mb-3 font-mono text-[11px] text-subtle leading-relaxed">
-              A personal access token with <code className="text-foreground">repo</code> scope
-              is required to scan <strong className="text-foreground">private</strong> repositories.
+              A personal access token with <code className="text-foreground">repo</code> scope is
+              required to scan <strong className="text-foreground">private</strong> repositories.
               Public repos work without a token.
             </p>
             <Field label="github personal access token">
@@ -204,9 +197,7 @@ function SettingsPage() {
           </Section>
         </div>
 
-        {error && (
-          <p className="mt-4 font-mono text-xs text-danger">{error}</p>
-        )}
+        {error && <p className="mt-4 font-mono text-xs text-danger">{error}</p>}
 
         <div className="mt-8 flex items-center gap-3">
           <button
@@ -218,9 +209,7 @@ function SettingsPage() {
             <Save className="size-3" />
             {saving ? "saving…" : "save settings"}
           </button>
-          {saved && (
-            <span className="font-mono text-xs text-success">✓ saved</span>
-          )}
+          {saved && <span className="font-mono text-xs text-success">✓ saved</span>}
         </div>
       </main>
     </div>
@@ -230,9 +219,7 @@ function SettingsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-elevated p-5">
-      <p className="mb-4 font-mono text-[10px] uppercase tracking-wider text-subtle">
-        {title}
-      </p>
+      <p className="mb-4 font-mono text-[10px] uppercase tracking-wider text-subtle">{title}</p>
       <div className="space-y-4">{children}</div>
     </div>
   );

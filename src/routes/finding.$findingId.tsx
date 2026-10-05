@@ -1,9 +1,23 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+} from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbFinding, type DbExplanation, type DbPatch } from "@/lib/supabase";
-import { Logo, SeverityBadge, StatusBadge, TerminalWindow, CodeView, DiffView } from "@/components/chrome";
+import {
+  Logo,
+  SeverityBadge,
+  StatusBadge,
+  TerminalWindow,
+  CodeView,
+  DiffView,
+} from "@/components/chrome";
 import { recomputeScore } from "@/lib/score";
 
 export const Route = createFileRoute("/finding/$findingId")({
@@ -85,11 +99,7 @@ function FindingDetailPage() {
   async function fetchData() {
     setLoadingData(true);
 
-    const { data: f } = await supabase
-      .from("findings")
-      .select("*")
-      .eq("id", findingId)
-      .single();
+    const { data: f } = await supabase.from("findings").select("*").eq("id", findingId).single();
 
     if (!f) {
       setLoadingData(false);
@@ -124,8 +134,8 @@ function FindingDetailPage() {
 
     setFinding({
       ...(f as DbFinding),
-      explanation: explanation as DbExplanation ?? undefined,
-      patch: patch as DbPatch ?? undefined,
+      explanation: (explanation as DbExplanation) ?? undefined,
+      patch: (patch as DbPatch) ?? undefined,
     });
     setLoadingData(false);
   }
@@ -161,10 +171,7 @@ function FindingDetailPage() {
     if (!finding || !user) return;
     setDeciding(true);
 
-    await supabase
-      .from("findings")
-      .update({ status: "dismissed" })
-      .eq("id", findingId);
+    await supabase.from("findings").update({ status: "dismissed" }).eq("id", findingId);
 
     // Recompute score so dismissed findings stop penalizing the score
     if (finding.project_id) {
@@ -199,8 +206,7 @@ function FindingDetailPage() {
 
   const validation = finding?.patch;
   const canAccept =
-    validation?.validation_verdict === "accepted" ||
-    validation?.validation_vulnerability_gone;
+    validation?.validation_verdict === "accepted" || validation?.validation_vulnerability_gone;
 
   const quiz = finding?.vulnerability_class
     ? quizData[finding.vulnerability_class as keyof typeof quizData]
@@ -240,7 +246,9 @@ function FindingDetailPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Logo />
           <button
-            onClick={() => navigate({ to: "/findings/$projectId", params: { projectId: finding.project_id } })}
+            onClick={() =>
+              navigate({ to: "/findings/$projectId", params: { projectId: finding.project_id } })
+            }
             className="flex items-center gap-2 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
           >
             <ArrowLeft className="size-3" />
@@ -259,9 +267,7 @@ function FindingDetailPage() {
         </div>
         <h1 className="mt-3 font-display text-xl font-semibold tracking-tight">
           {finding.file_path}
-          {finding.line_start && (
-            <span className="text-subtle">:{finding.line_start}</span>
-          )}
+          {finding.line_start && <span className="text-subtle">:{finding.line_start}</span>}
         </h1>
         <p className="mt-1 font-mono text-xs text-subtle">{finding.raw_message}</p>
 
@@ -276,9 +282,7 @@ function FindingDetailPage() {
               {finding.code_lines && finding.code_lines.length > 0 ? (
                 <CodeView lines={finding.code_lines} />
               ) : (
-                <span className="text-subtle/50 font-mono text-xs">
-                  no code context stored
-                </span>
+                <span className="text-subtle/50 font-mono text-xs">no code context stored</span>
               )}
             </TerminalWindow>
           </div>
@@ -339,11 +343,15 @@ function FindingDetailPage() {
               <div className="rounded-lg border border-border bg-elevated p-5 space-y-4 font-mono text-xs">
                 <div>
                   <span className="text-accent">what it is</span>
-                  <p className="mt-1 text-subtle leading-relaxed">{finding.explanation.what_it_is}</p>
+                  <p className="mt-1 text-subtle leading-relaxed">
+                    {finding.explanation.what_it_is}
+                  </p>
                 </div>
                 <div>
                   <span className="text-accent">why it happened</span>
-                  <p className="mt-1 text-subtle leading-relaxed">{finding.explanation.why_it_happened}</p>
+                  <p className="mt-1 text-subtle leading-relaxed">
+                    {finding.explanation.why_it_happened}
+                  </p>
                 </div>
                 <div>
                   <span className="text-accent">owasp category</span>
@@ -351,7 +359,9 @@ function FindingDetailPage() {
                 </div>
                 <div>
                   <span className="text-accent">how the fix works</span>
-                  <p className="mt-1 text-subtle leading-relaxed">{finding.explanation.how_fix_works}</p>
+                  <p className="mt-1 text-subtle leading-relaxed">
+                    {finding.explanation.how_fix_works}
+                  </p>
                 </div>
                 <div className="border-t border-border pt-3 text-subtle/50 text-[10px]">
                   model: {finding.explanation.model}
@@ -359,9 +369,7 @@ function FindingDetailPage() {
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-elevated p-5 flex items-center justify-between">
-                <span className="font-mono text-xs text-subtle">
-                  explanation not yet generated
-                </span>
+                <span className="font-mono text-xs text-subtle">explanation not yet generated</span>
                 <button
                   onClick={dismissFalsePositive}
                   disabled={deciding}
@@ -381,9 +389,7 @@ function FindingDetailPage() {
               proposed patch
             </p>
             <TerminalWindow title={`diff — ${finding.file_path}`}>
-              <DiffView
-                lines={parseDiff(finding.patch.diff)}
-              />
+              <DiffView lines={parseDiff(finding.patch.diff)} />
             </TerminalWindow>
           </div>
         )}
@@ -401,9 +407,9 @@ function FindingDetailPage() {
                   pass={finding.patch.validation_vulnerability_gone ?? false}
                 />
                 <ValidationCheck
-                  label="tests passed"
-                  pass={finding.patch.validation_tests_passed ?? false}
-                  na={finding.patch.validation_tests_passed === null}
+                  label="syntax valid"
+                  pass={finding.patch.validation_syntax_ok ?? false}
+                  na={finding.patch.validation_syntax_ok === null}
                 />
                 <ValidationCheck
                   label="new issues"
@@ -415,13 +421,10 @@ function FindingDetailPage() {
               {finding.patch.validation_verdict && (
                 <div
                   className={`px-5 py-3 font-mono text-xs font-semibold ${
-                    finding.patch.validation_verdict === "accepted"
-                      ? "text-success"
-                      : "text-danger"
+                    finding.patch.validation_verdict === "accepted" ? "text-success" : "text-danger"
                   }`}
                 >
-                  verdict:{" "}
-                  {finding.patch.validation_verdict?.toUpperCase()}
+                  verdict: {finding.patch.validation_verdict?.toUpperCase()}
                   {finding.patch.validation_failed_check && (
                     <span className="ml-2 text-subtle font-normal">
                       (failed: {finding.patch.validation_failed_check})
@@ -535,9 +538,7 @@ function FindingDetailPage() {
               education check
             </p>
             <TerminalWindow title={`quiz — ${finding.vulnerability_class}`}>
-              <div className="text-subtle text-xs mb-3">
-                // quick check before the fix lands
-              </div>
+              <div className="text-subtle text-xs mb-3">// quick check before the fix lands</div>
               <div className="text-foreground mb-4">{quiz.question}</div>
               <div className="space-y-2">
                 {quiz.options.map((opt, i) => (
@@ -574,15 +575,9 @@ function FindingDetailPage() {
               ) : (
                 <div className="mt-4 border-t border-border pt-3">
                   <span
-                    className={
-                      quizAnswer === quiz.correctIndex
-                        ? "text-success"
-                        : "text-danger"
-                    }
+                    className={quizAnswer === quiz.correctIndex ? "text-success" : "text-danger"}
                   >
-                    {quizAnswer === quiz.correctIndex
-                      ? "✓ correct!"
-                      : "✗ not quite"}
+                    {quizAnswer === quiz.correctIndex ? "✓ correct!" : "✗ not quite"}
                   </span>
                   <Link
                     to="/score"
@@ -613,9 +608,7 @@ function ValidationCheck({
 }) {
   return (
     <div className="p-4 flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-        {label}
-      </span>
+      <span className="font-mono text-[10px] uppercase tracking-wider text-subtle">{label}</span>
       {na ? (
         <span className="font-mono text-xs text-subtle">n/a</span>
       ) : (

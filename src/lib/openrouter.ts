@@ -28,11 +28,7 @@ export interface OpenRouterConfig {
 }
 
 export const DEFAULT_STAGE_MODELS: Record<StageName, string[]> = {
-  patch_generation: [
-    "mistralai/codestral-2508",
-    "qwen/qwen3-coder",
-    "deepseek/deepseek-r1",
-  ],
+  patch_generation: ["mistralai/codestral-2508", "qwen/qwen3-coder", "deepseek/deepseek-r1"],
   explanation_generation: [
     "meta-llama/llama-3.3-70b-instruct",
     "openai/gpt-oss-1",
@@ -40,10 +36,7 @@ export const DEFAULT_STAGE_MODELS: Record<StageName, string[]> = {
     "qwen/qwen3-coder",
     "deepseek/deepseek-r1",
   ],
-  default: [
-    "meta-llama/llama-3.3-70b-instruct",
-    "mistralai/codestral-2508",
-  ],
+  default: ["meta-llama/llama-3.3-70b-instruct", "mistralai/codestral-2508"],
 };
 
 export class OpenRouterProvider {

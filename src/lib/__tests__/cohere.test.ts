@@ -36,7 +36,10 @@ async function runTests() {
       "patch_generation",
     );
 
-    if (res.content === "Test response from secondary model" && res.modelUsed === "command-r-plus-08-2024") {
+    if (
+      res.content === "Test response from secondary model" &&
+      res.modelUsed === "command-r-plus-08-2024"
+    ) {
       console.log("  ✓ SUCCESS: Correctly failed over to secondary model upon receiving 429!\n");
     } else {
       throw new Error(`Unexpected result: ${JSON.stringify(res)}`);
@@ -60,7 +63,9 @@ async function runTests() {
       throw new Error("Should have thrown CohereProvidersExhaustedError");
     } catch (err: any) {
       if (err instanceof CohereProvidersExhaustedError || err.isExhausted) {
-        console.log("  ✓ SUCCESS: Correctly raised CohereProvidersExhaustedError when all models failed!\n");
+        console.log(
+          "  ✓ SUCCESS: Correctly raised CohereProvidersExhaustedError when all models failed!\n",
+        );
       } else {
         throw err;
       }

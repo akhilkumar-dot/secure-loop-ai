@@ -78,15 +78,14 @@ export async function runOpenRouterTests(): Promise<boolean> {
       return new Response("Quota Exceeded", { status: 402 });
     }) as typeof fetch;
 
-    await provider.generateChatCompletion(
-      [{ role: "user", content: "Test" }],
-      "patch_generation",
-    );
+    await provider.generateChatCompletion([{ role: "user", content: "Test" }], "patch_generation");
     console.error("  ✖ FAIL: Expected AllProvidersExhaustedError, but no error was thrown.");
     passed = false;
   } catch (err: any) {
     if (err instanceof AllProvidersExhaustedError || err?.name === "AllProvidersExhaustedError") {
-      console.log("  ✓ SUCCESS: Correctly raised AllProvidersExhaustedError when all providers were exhausted!");
+      console.log(
+        "  ✓ SUCCESS: Correctly raised AllProvidersExhaustedError when all providers were exhausted!",
+      );
     } else {
       console.error("  ✖ FAIL: Caught unexpected error type:", err);
       passed = false;

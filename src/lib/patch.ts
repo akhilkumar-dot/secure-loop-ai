@@ -36,7 +36,12 @@ function parseHunks(diff: string): { hunks: Hunk[]; error?: string } {
   while (i < diffLines.length) {
     const line = diffLines[i]!;
     // Skip file header lines (---, +++, diff --git …)
-    if (line.startsWith("---") || line.startsWith("+++") || line.startsWith("diff ") || line.startsWith("index ")) {
+    if (
+      line.startsWith("---") ||
+      line.startsWith("+++") ||
+      line.startsWith("diff ") ||
+      line.startsWith("index ")
+    ) {
       i++;
       continue;
     }

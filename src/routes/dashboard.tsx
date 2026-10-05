@@ -203,9 +203,7 @@ function DashboardPage() {
   if (loading || loadingProjects) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="font-mono text-xs text-subtle animate-pulse">
-          loading…
-        </span>
+        <span className="font-mono text-xs text-subtle animate-pulse">loading…</span>
       </div>
     );
   }
@@ -217,9 +215,7 @@ function DashboardPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Logo />
           <div className="flex items-center gap-3">
-            {(githubUser as Record<string, any>)?.[
-              "avatar_url"
-            ] && (
+            {(githubUser as Record<string, any>)?.["avatar_url"] && (
               <img
                 src={(githubUser as Record<string, any>)["avatar_url"]}
                 alt="GitHub"
@@ -227,9 +223,7 @@ function DashboardPage() {
               />
             )}
             <span className="hidden font-mono text-xs text-subtle sm:block">
-              {(githubUser as Record<string, any>)?.[
-                "preferred_username"
-              ]
+              {(githubUser as Record<string, any>)?.["preferred_username"]
                 ? `@${(githubUser as Record<string, any>)["preferred_username"]}`
                 : user?.email}
             </span>
@@ -265,9 +259,7 @@ function DashboardPage() {
             <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
               your projects
             </p>
-            <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
-              Dashboard
-            </h1>
+            <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">Dashboard</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -292,9 +284,7 @@ function DashboardPage() {
         {showNewProject && (
           <div className="mt-6 rounded-lg border border-border bg-elevated p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="font-mono text-xs font-semibold">
-                connect a repository
-              </p>
+              <p className="font-mono text-xs font-semibold">connect a repository</p>
               {activeGithubToken && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 font-mono text-[10px] text-success">
                   <Github className="size-3" /> GitHub Authenticated
@@ -337,7 +327,8 @@ function DashboardPage() {
                   <option value="">-- Select a repository --</option>
                   {userRepos.map((r) => (
                     <option key={r.id} value={r.clone_url}>
-                      {r.full_name} {r.private ? "(private)" : ""} {r.language ? `• ${r.language}` : ""}
+                      {r.full_name} {r.private ? "(private)" : ""}{" "}
+                      {r.language ? `• ${r.language}` : ""}
                     </option>
                   ))}
                 </select>
@@ -372,11 +363,7 @@ function DashboardPage() {
                 </div>
               )}
             </div>
-            {createError && (
-              <p className="mt-2 font-mono text-[11px] text-danger">
-                {createError}
-              </p>
-            )}
+            {createError && <p className="mt-2 font-mono text-[11px] text-danger">{createError}</p>}
             <div className="mt-4 flex gap-2">
               <button
                 onClick={createProject}
@@ -400,13 +387,8 @@ function DashboardPage() {
         <div className="mt-8">
           {projects.length === 0 ? (
             <div className="rounded-lg border border-border bg-elevated p-12 text-center">
-              <ShieldCheck
-                className="mx-auto size-8 text-subtle/30"
-                strokeWidth={1}
-              />
-              <p className="mt-4 font-mono text-sm text-subtle">
-                no projects yet
-              </p>
+              <ShieldCheck className="mx-auto size-8 text-subtle/30" strokeWidth={1} />
+              <p className="mt-4 font-mono text-sm text-subtle">no projects yet</p>
               <p className="mt-1 font-mono text-xs text-subtle/60">
                 connect a GitHub repo or upload a zip to start scanning
               </p>
@@ -423,18 +405,12 @@ function DashboardPage() {
               <table className="w-full font-mono text-xs">
                 <thead>
                   <tr className="border-b border-border bg-elevated text-left text-subtle">
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">
-                      project
-                    </th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">
-                      last scan
-                    </th>
+                    <th className="px-5 py-3 font-medium uppercase tracking-wider">project</th>
+                    <th className="px-5 py-3 font-medium uppercase tracking-wider">last scan</th>
                     <th className="px-5 py-3 font-medium uppercase tracking-wider">
                       open findings
                     </th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">
-                      score
-                    </th>
+                    <th className="px-5 py-3 font-medium uppercase tracking-wider">score</th>
                     <th className="px-5 py-3 font-medium uppercase tracking-wider" />
                     <th className="px-5 py-3 font-medium uppercase tracking-wider" />
                   </tr>
@@ -453,13 +429,9 @@ function DashboardPage() {
                     >
                       <td className="px-5 py-4">
                         <div className="flex flex-col gap-0.5">
-                          <span className="font-semibold text-foreground">
-                            {p.name}
-                          </span>
+                          <span className="font-semibold text-foreground">{p.name}</span>
                           {p.repo_url && (
-                            <span className="text-[10px] text-subtle/60">
-                              {p.repo_url}
-                            </span>
+                            <span className="text-[10px] text-subtle/60">{p.repo_url}</span>
                           )}
                         </div>
                       </td>
@@ -479,9 +451,7 @@ function DashboardPage() {
                         </span>
                         <span className="ml-2 text-subtle">{p.lastScanAt}</span>
                       </td>
-                      <td className="px-5 py-4 text-foreground">
-                        {p.findingsCount}
-                      </td>
+                      <td className="px-5 py-4 text-foreground">{p.findingsCount}</td>
                       <td className="px-5 py-4">
                         <ScoreBadge score={p.score} size="sm" />
                       </td>

@@ -7,11 +7,7 @@ export class OpenAIProvidersExhaustedError extends Error {
   isExhausted = true;
   constructor(stage: string, errors: Record<string, string>) {
     super(
-      `All OpenAI models for stage '${stage}' failed. Details: ${JSON.stringify(
-        errors,
-        null,
-        2,
-      )}`,
+      `All OpenAI models for stage '${stage}' failed. Details: ${JSON.stringify(errors, null, 2)}`,
     );
     this.name = "OpenAIProvidersExhaustedError";
   }
@@ -26,20 +22,9 @@ export interface OpenAIConfig {
 }
 
 export const DEFAULT_OPENAI_STAGE_MODELS: Record<StageName, string[]> = {
-  patch_generation: [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-  ],
-  explanation_generation: [
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-4-turbo",
-  ],
-  default: [
-    "gpt-4o-mini",
-    "gpt-4o",
-  ],
+  patch_generation: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+  explanation_generation: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+  default: ["gpt-4o-mini", "gpt-4o"],
 };
 
 export class OpenAIProvider {

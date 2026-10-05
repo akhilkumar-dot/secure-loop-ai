@@ -7,12 +7,7 @@
 export type Severity = "critical" | "high" | "medium" | "low";
 export type VulnClass = "sqli" | "xss" | "csrf" | "insecure_deserialization";
 export type FindingStatus =
-  | "open"
-  | "explained"
-  | "patched"
-  | "validated"
-  | "accepted"
-  | "rejected";
+  "open" | "explained" | "patched" | "validated" | "accepted" | "rejected";
 
 export interface Project {
   id: string;
@@ -192,8 +187,7 @@ export const findings: Finding[] = [
       validatedAt: "2026-08-21T06:41:00Z",
     },
     quiz: {
-      question:
-        "Why do parameterized queries prevent SQL injection, while escaping often fails?",
+      question: "Why do parameterized queries prevent SQL injection, while escaping often fails?",
       options: [
         "They encrypt the input before it reaches the database",
         "The query structure is parsed before user data is bound, so input can never become SQL syntax",
@@ -214,13 +208,12 @@ export const findings: Finding[] = [
     lineStart: 17,
     lineEnd: 17,
     vulnerabilityClass: "xss",
-    rawMessage:
-      "Unescaped user input rendered via dangerouslySetInnerHTML enables stored XSS.",
+    rawMessage: "Unescaped user input rendered via dangerouslySetInnerHTML enables stored XSS.",
     status: "validated",
     code: [
       { n: 14, code: "export function ProfileBio({ bio }: { bio: string }) {" },
       { n: 15, code: "  return (" },
-      { n: 16, code: "    <div className=\"bio\">" },
+      { n: 16, code: '    <div className="bio">' },
       {
         n: 17,
         code: "      <div dangerouslySetInnerHTML={{ __html: bio }} />",
@@ -272,8 +265,7 @@ export const findings: Finding[] = [
       validatedAt: "2026-08-21T06:44:00Z",
     },
     quiz: {
-      question:
-        "What is the safest default way to render user text in React?",
+      question: "What is the safest default way to render user text in React?",
       options: [
         "dangerouslySetInnerHTML with a regex filter",
         "Plain JSX interpolation — React escapes output by default",
@@ -294,8 +286,7 @@ export const findings: Finding[] = [
     lineStart: 8,
     lineEnd: 11,
     vulnerabilityClass: "csrf",
-    rawMessage:
-      "State-changing POST endpoint has no anti-CSRF token verification.",
+    rawMessage: "State-changing POST endpoint has no anti-CSRF token verification.",
     status: "rejected",
     code: [
       { n: 6, code: "// no csurf middleware mounted on this router" },
@@ -370,8 +361,7 @@ export const findings: Finding[] = [
     lineStart: 23,
     lineEnd: 23,
     vulnerabilityClass: "insecure_deserialization",
-    rawMessage:
-      "pickle.loads() on attacker-influenced bytes can execute arbitrary code.",
+    rawMessage: "pickle.loads() on attacker-influenced bytes can execute arbitrary code.",
     status: "explained",
     code: [
       { n: 20, code: "def restore_session(blob: bytes) -> dict:" },
@@ -411,8 +401,7 @@ export const findings: Finding[] = [
     ],
     validation: null,
     quiz: {
-      question:
-        "Why is JSON preferred over pickle for untrusted input in Python?",
+      question: "Why is JSON preferred over pickle for untrusted input in Python?",
       options: [
         "JSON is faster to parse",
         "JSON describes data only — it has no mechanism to construct objects or execute code during parsing",
@@ -475,8 +464,7 @@ export const findings: Finding[] = [
       validatedAt: "2026-08-20T18:02:00Z",
     },
     quiz: {
-      question:
-        "In a parameterized LIKE clause, where does the % wildcard belong?",
+      question: "In a parameterized LIKE clause, where does the % wildcard belong?",
       options: [
         "Inside the SQL string around the placeholder",
         "Concatenated into the bound parameter value",
@@ -522,8 +510,7 @@ export const findings: Finding[] = [
     diff: [],
     validation: null,
     quiz: {
-      question:
-        "Reflected XSS is best prevented by:",
+      question: "Reflected XSS is best prevented by:",
       options: [
         "Validating input length",
         "Context-aware output encoding at render time",
@@ -576,7 +563,11 @@ export const scanStages = [
   "done",
 ] as const;
 
-export const scanLogScript: { stage: number; line: string; tone?: "ok" | "err" | "warn" | "dim" }[] = [
+export const scanLogScript: {
+  stage: number;
+  line: string;
+  tone?: "ok" | "err" | "warn" | "dim";
+}[] = [
   { stage: 0, line: "$ secureloop scan github.com/you/vulnshop-api" },
   { stage: 0, line: "job queued · position 1 · est. 90s", tone: "dim" },
   { stage: 1, line: "▸ cloning @ main (3fa9c21) into ephemeral workspace… done" },
@@ -592,9 +583,25 @@ export const scanLogScript: { stage: number; line: string; tone?: "ok" | "err" |
   { stage: 3, line: "▸ llm: generating candidate patches…", tone: "warn" },
   { stage: 3, line: "  ✓ 6/6 unified diffs generated", tone: "ok" },
   { stage: 4, line: "▸ sandbox validation (ephemeral container per patch)", tone: "warn" },
-  { stage: 4, line: "  patch-8f2c1  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED", tone: "ok" },
-  { stage: 4, line: "  patch-9a1d4  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED", tone: "ok" },
-  { stage: 4, line: "  patch-c77b0  re-scan ✓  tests 38/41 ✖  → REJECTED (tests_passed)", tone: "err" },
-  { stage: 4, line: "  patch-d31e9  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED", tone: "ok" },
+  {
+    stage: 4,
+    line: "  patch-8f2c1  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED",
+    tone: "ok",
+  },
+  {
+    stage: 4,
+    line: "  patch-9a1d4  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED",
+    tone: "ok",
+  },
+  {
+    stage: 4,
+    line: "  patch-c77b0  re-scan ✓  tests 38/41 ✖  → REJECTED (tests_passed)",
+    tone: "err",
+  },
+  {
+    stage: 4,
+    line: "  patch-d31e9  re-scan ✓  tests 41/41 ✓  new issues 0 ✓  → ACCEPTED",
+    tone: "ok",
+  },
   { stage: 5, line: "done · 4 patches ready for review · 1 failed validation", tone: "ok" },
 ];

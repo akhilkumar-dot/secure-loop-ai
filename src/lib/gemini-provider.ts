@@ -25,12 +25,17 @@ export type StageName = "explanation_generation" | "patch_generation" | "default
 
 function resolveModels(): string[] {
   const primary =
-    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_PRIMARY"]) ||
-    "gemini-2.5-flash";
+    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_PRIMARY"]) || "gemini-2.5-flash";
   const fallbacksEnv =
     (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_FALLBACKS"]) ||
     "gemini-1.5-flash,gemini-1.5-flash-8b";
-  return [primary, ...fallbacksEnv.split(",").map((m) => m.trim()).filter(Boolean)];
+  return [
+    primary,
+    ...fallbacksEnv
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean),
+  ];
 }
 
 const STAGE_MODELS: Record<StageName, string[]> = {
@@ -38,7 +43,6 @@ const STAGE_MODELS: Record<StageName, string[]> = {
   patch_generation: resolveModels(),
   default: resolveModels(),
 };
-
 
 export class GeminiProvider {
   private apiKey: string;
@@ -82,9 +86,15 @@ export class GeminiProvider {
           if (options.responseFormatJson) {
             content = content.trim();
             if (content.startsWith("```json")) {
-              content = content.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
+              content = content
+                .replace(/^```json\s*/i, "")
+                .replace(/\s*```$/, "")
+                .trim();
             } else if (content.startsWith("```")) {
-              content = content.replace(/^```\s*/i, "").replace(/\s*```$/, "").trim();
+              content = content
+                .replace(/^```\s*/i, "")
+                .replace(/\s*```$/, "")
+                .trim();
             }
           }
 

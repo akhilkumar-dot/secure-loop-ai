@@ -42,9 +42,7 @@ function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        setSuccessMsg(
-          "Account created! Check your email to confirm, then sign in.",
-        );
+        setSuccessMsg("Account created! Check your email to confirm, then sign in.");
         setMode("signin");
       }
     } else {
@@ -61,9 +59,7 @@ function LoginPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="font-mono text-xs text-subtle animate-pulse">
-          loading…
-        </span>
+        <span className="font-mono text-xs text-subtle animate-pulse">loading…</span>
       </div>
     );
   }

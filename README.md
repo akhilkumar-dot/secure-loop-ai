@@ -4,7 +4,7 @@
 
 SecureLoop scans any public or private GitHub repository for real security vulnerabilities, explains each finding in plain language, generates a candidate fix as a unified diff, and validates that fix using AI-based re-analysis — all before a developer ever sees it. Every accept/reject decision is recorded, and an interactive education check after each decision reinforces the underlying secure-coding concept.
 
-> Detection alone isn't the hard part. Neither is getting an LLM to *suggest* a fix. The hard part is trusting that an AI-generated patch actually works. SecureLoop's contribution is the closed validation loop between "AI wrote a patch" and "a developer should accept it."
+> Detection alone isn't the hard part. Neither is getting an LLM to _suggest_ a fix. The hard part is trusting that an AI-generated patch actually works. SecureLoop's contribution is the closed validation loop between "AI wrote a patch" and "a developer should accept it."
 
 ---
 
@@ -185,25 +185,25 @@ GitHub Repo URL
 
 ## Tech Stack
 
-| Layer | Technology | Notes |
-|---|---|---|
-| **Framework** | TanStack Start v1 | SSR + file-based routing via TanStack Router |
-| **Runtime** | React 19, TypeScript 5.8 | Strict mode |
-| **Build** | Vite 8 + Rolldown + Nitro | Cloudflare Workers deploy target |
-| **Styling** | Tailwind CSS v4 | JIT, CSS variables design tokens |
-| **Component primitives** | Radix UI | Accessible headless components |
-| **Charts** | Recharts | Security score trend line chart |
-| **Forms** | React Hook Form + Zod | Schema-validated inputs |
-| **Server state** | TanStack Query v5 | Caching, background refetch |
-| **Database** | Supabase (PostgreSQL) | Row Level Security, realtime subscriptions |
-| **Auth** | Supabase Auth | GitHub OAuth + magic link |
-| **SAST engine** | Custom TypeScript (sast.ts) | 17 rules, Semgrep-compatible rule IDs, runs in-browser |
-| **Primary AI** | Google Gemini (`@google/generative-ai` v0.24) | gemini-3.8-flash + 2-tier fallback |
-| **AI fallback** | OpenRouter · OpenAI · Cohere | Auto-selected by API key prefix |
-| **GitHub integration** | GitHub REST API | No git binary dependency; serverless-safe |
-| **Icons** | Lucide React | |
-| **Linting** | ESLint 9 + TypeScript ESLint + Prettier | |
-| **Deploy target** | Cloudflare Workers (via Nitro) | Can also deploy to Vercel (Node.js preset) |
+| Layer                    | Technology                                    | Notes                                                  |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------------ |
+| **Framework**            | TanStack Start v1                             | SSR + file-based routing via TanStack Router           |
+| **Runtime**              | React 19, TypeScript 5.8                      | Strict mode                                            |
+| **Build**                | Vite 8 + Rolldown + Nitro                     | Cloudflare Workers deploy target                       |
+| **Styling**              | Tailwind CSS v4                               | JIT, CSS variables design tokens                       |
+| **Component primitives** | Radix UI                                      | Accessible headless components                         |
+| **Charts**               | Recharts                                      | Security score trend line chart                        |
+| **Forms**                | React Hook Form + Zod                         | Schema-validated inputs                                |
+| **Server state**         | TanStack Query v5                             | Caching, background refetch                            |
+| **Database**             | Supabase (PostgreSQL)                         | Row Level Security, realtime subscriptions             |
+| **Auth**                 | Supabase Auth                                 | GitHub OAuth + magic link                              |
+| **SAST engine**          | Custom TypeScript (sast.ts)                   | 17 rules, Semgrep-compatible rule IDs, runs in-browser |
+| **Primary AI**           | Google Gemini (`@google/generative-ai` v0.24) | gemini-3.8-flash + 2-tier fallback                     |
+| **AI fallback**          | OpenRouter · OpenAI · Cohere                  | Auto-selected by API key prefix                        |
+| **GitHub integration**   | GitHub REST API                               | No git binary dependency; serverless-safe              |
+| **Icons**                | Lucide React                                  |                                                        |
+| **Linting**              | ESLint 9 + TypeScript ESLint + Prettier       |                                                        |
+| **Deploy target**        | Cloudflare Workers (via Nitro)                | Can also deploy to Vercel (Node.js preset)             |
 
 ---
 
@@ -213,33 +213,33 @@ All 17 rules run deterministically in-browser. Rule IDs follow Semgrep registry 
 
 ### JavaScript / TypeScript / Node.js (13 rules)
 
-| Rule ID | CWE | Severity | What It Detects |
-|---|---|---|---|
-| `javascript.mongodb.nosqli.nosql-injection-req-body` | CWE-943 | critical | `req.body/query/params` flowing unsanitized into MongoDB query methods |
-| `javascript.mongodb.nosqli.nosql-where-injection` | CWE-943 | critical | `$where` operator with string concatenation (arbitrary JS in MongoDB) |
-| `javascript.browser.security.innerHTML-assignment` | CWE-79 | high | `innerHTML` assigned a non-literal value |
-| `javascript.express.xss.res-send-user-data` | CWE-79 | high | `res.send/write` with user-controlled data and no encoding |
-| `javascript.lang.security.audit.eval-user-input` | CWE-79 | critical | `eval()` called with user input (XSS + RCE) |
-| `javascript.express.xss.unescaped-template-var` | CWE-79 | high | Unescaped output in EJS (`<%-`), Handlebars (`{{{`), or Pug (`!=`) |
-| `javascript.express.security.audit.csrf.csrf-not-enabled` | CWE-352 | medium | POST/PUT/PATCH/DELETE route with no `csurf` or CSRF token check |
-| `javascript.express.security.audit.session.session-no-secure` | CWE-614 | high | `express-session` without `secure: true` |
-| `javascript.express.security.audit.session.session-no-httponly` | CWE-1004 | medium | `express-session` without `httpOnly: true` |
-| `javascript.express.security.audit.session.session-hardcoded-secret` | CWE-331 | high | Short hardcoded session secret |
-| `javascript.express.security.audit.session.session-memory-store` | CWE-400 | medium | `express-session` using default MemoryStore (leaks in production) |
-| `javascript.lang.security.audit.sqli.node-sqli-injection` | CWE-89 | critical | SQL query built with string concatenation and user input |
-| `javascript.lang.security.audit.unsafe-deserialization` | CWE-502 | critical | `node-serialize/unserialize` with user-controlled data |
-| `javascript.lang.security.audit.child-process-injection` | CWE-78 | critical | `exec/spawn` with user input (OS command injection) |
-| `javascript.lang.security.audit.path-traversal` | CWE-22 | high | `fs.readFile/writeFile` with user path and no `path.resolve` guard |
-| `javascript.lang.security.audit.hardcoded-credentials` | CWE-798 | high | Hardcoded passwords, API keys, tokens, secrets in source |
+| Rule ID                                                              | CWE      | Severity | What It Detects                                                        |
+| -------------------------------------------------------------------- | -------- | -------- | ---------------------------------------------------------------------- |
+| `javascript.mongodb.nosqli.nosql-injection-req-body`                 | CWE-943  | critical | `req.body/query/params` flowing unsanitized into MongoDB query methods |
+| `javascript.mongodb.nosqli.nosql-where-injection`                    | CWE-943  | critical | `$where` operator with string concatenation (arbitrary JS in MongoDB)  |
+| `javascript.browser.security.innerHTML-assignment`                   | CWE-79   | high     | `innerHTML` assigned a non-literal value                               |
+| `javascript.express.xss.res-send-user-data`                          | CWE-79   | high     | `res.send/write` with user-controlled data and no encoding             |
+| `javascript.lang.security.audit.eval-user-input`                     | CWE-79   | critical | `eval()` called with user input (XSS + RCE)                            |
+| `javascript.express.xss.unescaped-template-var`                      | CWE-79   | high     | Unescaped output in EJS (`<%-`), Handlebars (`{{{`), or Pug (`!=`)     |
+| `javascript.express.security.audit.csrf.csrf-not-enabled`            | CWE-352  | medium   | POST/PUT/PATCH/DELETE route with no `csurf` or CSRF token check        |
+| `javascript.express.security.audit.session.session-no-secure`        | CWE-614  | high     | `express-session` without `secure: true`                               |
+| `javascript.express.security.audit.session.session-no-httponly`      | CWE-1004 | medium   | `express-session` without `httpOnly: true`                             |
+| `javascript.express.security.audit.session.session-hardcoded-secret` | CWE-331  | high     | Short hardcoded session secret                                         |
+| `javascript.express.security.audit.session.session-memory-store`     | CWE-400  | medium   | `express-session` using default MemoryStore (leaks in production)      |
+| `javascript.lang.security.audit.sqli.node-sqli-injection`            | CWE-89   | critical | SQL query built with string concatenation and user input               |
+| `javascript.lang.security.audit.unsafe-deserialization`              | CWE-502  | critical | `node-serialize/unserialize` with user-controlled data                 |
+| `javascript.lang.security.audit.child-process-injection`             | CWE-78   | critical | `exec/spawn` with user input (OS command injection)                    |
+| `javascript.lang.security.audit.path-traversal`                      | CWE-22   | high     | `fs.readFile/writeFile` with user path and no `path.resolve` guard     |
+| `javascript.lang.security.audit.hardcoded-credentials`               | CWE-798  | high     | Hardcoded passwords, API keys, tokens, secrets in source               |
 
 ### Java / Spring (4 rules)
 
-| Rule ID | CWE | Severity | What It Detects |
-|---|---|---|---|
-| `java.spring.security.audit.sqli.spring-sqli-concat` | CWE-89 | critical | JPQL/JDBC query built with string concatenation |
-| `java.lang.security.audit.xss.servlet-response-writer` | CWE-79 | high | Unsanitized data written to `HttpServletResponse` output stream |
-| `java.lang.security.audit.command-injection.process-builder` | CWE-78 | critical | `ProcessBuilder`/`Runtime.exec` with concatenated input |
-| `java.spring.security.audit.csrf.spring-csrf-disabled` | CWE-352 | medium | `.csrf().disable()` in Spring Security configuration |
+| Rule ID                                                      | CWE     | Severity | What It Detects                                                 |
+| ------------------------------------------------------------ | ------- | -------- | --------------------------------------------------------------- |
+| `java.spring.security.audit.sqli.spring-sqli-concat`         | CWE-89  | critical | JPQL/JDBC query built with string concatenation                 |
+| `java.lang.security.audit.xss.servlet-response-writer`       | CWE-79  | high     | Unsanitized data written to `HttpServletResponse` output stream |
+| `java.lang.security.audit.command-injection.process-builder` | CWE-78  | critical | `ProcessBuilder`/`Runtime.exec` with concatenated input         |
+| `java.spring.security.audit.csrf.spring-csrf-disabled`       | CWE-352 | medium   | `.csrf().disable()` in Spring Security configuration            |
 
 ### Language Support
 
@@ -280,13 +280,13 @@ To deploy to Vercel instead, change the Nitro preset to `vercel` in `vite.config
 
 Copy `.env.example` to `.env` and populate:
 
-| Variable | Description |
-|---|---|
-| `VITE_SUPABASE_URL` | Your Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous (public) key |
-| `VITE_GEMINI_API_KEY` | Google AI Studio key — keys starting `AQ.` or `AIza` |
-| `GEMINI_API_KEY` | Same key, exposed server-side for SSR |
-| `VITE_OPENAI_API_KEY` | Optional — used if no Gemini key; keys starting `sk-` |
+| Variable                  | Description                                               |
+| ------------------------- | --------------------------------------------------------- |
+| `VITE_SUPABASE_URL`       | Your Supabase project URL                                 |
+| `VITE_SUPABASE_ANON_KEY`  | Supabase anonymous (public) key                           |
+| `VITE_GEMINI_API_KEY`     | Google AI Studio key — keys starting `AQ.` or `AIza`      |
+| `GEMINI_API_KEY`          | Same key, exposed server-side for SSR                     |
+| `VITE_OPENAI_API_KEY`     | Optional — used if no Gemini key; keys starting `sk-`     |
 | `VITE_OPENROUTER_API_KEY` | Optional — used as final fallback; keys starting `sk-or-` |
 
 **AI provider auto-routing:** The provider is selected automatically by key prefix — no `LLM_PROVIDER` flag needed. Keys starting `AQ.` or `AIza` → Gemini. `sk-or-` → OpenRouter. `sk-` → OpenAI. Any other long alphanumeric string → Cohere.
@@ -299,7 +299,7 @@ Copy `.env.example` to `.env` and populate:
 
 1. **Sign in** via GitHub OAuth on the login page.
 2. **Create a project** — paste a GitHub repo URL (public or private).
-3. **Trigger a scan** — click *start scan* on the project scan page. Watch the live pipeline log: `cloning → sast → explaining → patching → validating → done`.
+3. **Trigger a scan** — click _start scan_ on the project scan page. Watch the live pipeline log: `cloning → sast → explaining → patching → validating → done`.
 4. **Review findings** — browse the findings list, filterable by severity and vulnerability class.
 5. **Open a finding** — see the vulnerable code, plain-language explanation, proposed patch diff, and validation verdict side-by-side.
 6. **Accept or Reject** — record your decision. Accepted patches need to be applied manually to your repo (`git apply patch.diff`).
@@ -331,13 +331,14 @@ All tables are owned by the authenticated user via Supabase Row Level Security (
 
 For every candidate patch, Gemini performs a three-check validation pass:
 
-| Check | Pass condition |
-|---|---|
+| Check                | Pass condition                                                          |
+| -------------------- | ----------------------------------------------------------------------- |
 | `vulnerability_gone` | The original vulnerability pattern no longer exists in the patched code |
-| `tests_passed` | No logic regressions introduced (simulated via AI re-analysis) |
-| `new_issues` | Zero new vulnerability patterns introduced by the patch |
+| `tests_passed`       | No logic regressions introduced (simulated via AI re-analysis)          |
+| `new_issues`         | Zero new vulnerability patterns introduced by the patch                 |
 
 **Verdict:**
+
 - `accepted` — all three checks pass
 - `rejected` — any check fails; `validation_failed_check` records which one
 
@@ -381,12 +382,12 @@ If the AI validation verdict was `rejected` but the developer clicks accept anyw
 
 A score from 0–100 is computed per project, per scan run, and broken down into four categories:
 
-| Category | CWE families covered |
-|---|---|
-| SQL Injection | CWE-89, CWE-943 (NoSQLi) |
-| XSS | CWE-79 |
-| CSRF | CWE-352 |
-| Deserialization | CWE-502 |
+| Category        | CWE families covered     |
+| --------------- | ------------------------ |
+| SQL Injection   | CWE-89, CWE-943 (NoSQLi) |
+| XSS             | CWE-79                   |
+| CSRF            | CWE-352                  |
+| Deserialization | CWE-502                  |
 
 The **Security Score** page renders a `Recharts` `LineChart` tracking score over time across all scan runs, so developers can see measurable improvement as findings are accepted and fixed.
 

@@ -4,15 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbSecurityScore } from "@/lib/supabase";
 import { Logo, ScoreBadge } from "@/components/chrome";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 export const Route = createFileRoute("/score")({
   head: () => ({
@@ -95,12 +87,8 @@ function ScorePage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-10">
-        <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-          security score
-        </p>
-        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
-          Your Progress
-        </h1>
+        <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">security score</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">Your Progress</h1>
 
         {scores.length === 0 ? (
           <div className="mt-12 rounded-lg border border-border bg-elevated p-10 text-center">
@@ -133,7 +121,10 @@ function ScorePage() {
                   <span className="font-mono text-[10px] uppercase tracking-wider text-subtle mb-2 text-center">
                     {c.label}
                   </span>
-                  <ScoreBadge score={latest?.[c.key as keyof DbSecurityScore] as number ?? 0} size="sm" />
+                  <ScoreBadge
+                    score={(latest?.[c.key as keyof DbSecurityScore] as number) ?? 0}
+                    size="sm"
+                  />
                 </div>
               ))}
             </div>

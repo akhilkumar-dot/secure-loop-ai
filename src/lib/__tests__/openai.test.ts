@@ -78,15 +78,17 @@ export async function runOpenAITests(): Promise<boolean> {
       return new Response("Quota Exceeded", { status: 402 });
     }) as typeof fetch;
 
-    await provider.generateChatCompletion(
-      [{ role: "user", content: "Test" }],
-      "patch_generation",
-    );
+    await provider.generateChatCompletion([{ role: "user", content: "Test" }], "patch_generation");
     console.error("  ✖ FAIL: Expected OpenAIProvidersExhaustedError, but no error was thrown.");
     passed = false;
   } catch (err: any) {
-    if (err instanceof OpenAIProvidersExhaustedError || err?.name === "OpenAIProvidersExhaustedError") {
-      console.log("  ✓ SUCCESS: Correctly raised OpenAIProvidersExhaustedError when all providers were exhausted!");
+    if (
+      err instanceof OpenAIProvidersExhaustedError ||
+      err?.name === "OpenAIProvidersExhaustedError"
+    ) {
+      console.log(
+        "  ✓ SUCCESS: Correctly raised OpenAIProvidersExhaustedError when all providers were exhausted!",
+      );
     } else {
       console.error("  ✖ FAIL: Caught unexpected error type:", err);
       passed = false;

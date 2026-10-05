@@ -43,10 +43,7 @@ export function Pill({
     >
       {dot && (
         <span
-          className={cn(
-            "size-1.5 rounded-full",
-            variant === "solid" ? "bg-accent" : "bg-subtle",
-          )}
+          className={cn("size-1.5 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
         />
       )}
       {children}
@@ -83,10 +80,7 @@ export function PillLink({
     >
       {dot && (
         <span
-          className={cn(
-            "size-1.5 rounded-full",
-            variant === "solid" ? "bg-accent" : "bg-subtle",
-          )}
+          className={cn("size-1.5 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
         />
       )}
       {children}
@@ -96,13 +90,7 @@ export function PillLink({
 
 /* --------------------------------- eyebrow -------------------------------- */
 
-export function Eyebrow({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return <p className={cn("eyebrow", className)}>{children}</p>;
 }
 
@@ -120,27 +108,15 @@ export function TerminalWindow({
   bodyClassName?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-lg border border-border bg-elevated",
-        className,
-      )}
-    >
+    <div className={cn("overflow-hidden rounded-lg border border-border bg-elevated", className)}>
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <span className="size-2.5 rounded-full bg-border" />
         <span className="size-2.5 rounded-full bg-border" />
         <span className="size-2.5 rounded-full bg-border" />
-        <span className="mx-auto font-mono text-[11px] text-subtle">
-          {title}
-        </span>
+        <span className="mx-auto font-mono text-[11px] text-subtle">{title}</span>
         <span className="w-14" />
       </div>
-      <div
-        className={cn(
-          "overflow-x-auto p-4 font-mono text-xs leading-relaxed",
-          bodyClassName,
-        )}
-      >
+      <div className={cn("overflow-x-auto p-4 font-mono text-xs leading-relaxed", bodyClassName)}>
         {children}
       </div>
     </div>
@@ -220,11 +196,7 @@ export function DiffView({ lines }: { lines: DiffLine[] }) {
 
 /* ------------------------------ code snippet ------------------------------ */
 
-export function CodeView({
-  lines,
-}: {
-  lines: { n: number; code: string; vuln?: boolean }[];
-}) {
+export function CodeView({ lines }: { lines: { n: number; code: string; vuln?: boolean }[] }) {
   return (
     <div className="font-mono text-xs leading-relaxed">
       {lines.map((l) => (
@@ -235,9 +207,7 @@ export function CodeView({
             l.vuln ? "bg-danger/10 text-foreground" : "text-foreground/70",
           )}
         >
-          <span className="w-8 shrink-0 select-none text-right text-subtle/60">
-            {l.n}
-          </span>
+          <span className="w-8 shrink-0 select-none text-right text-subtle/60">{l.n}</span>
           <span className="pl-4">
             {l.vuln && <span className="mr-2 text-danger">▸</span>}
             {l.code}
@@ -252,7 +222,11 @@ export function CodeView({
 
 export function ScoreBadge({ score, size = "md" }: { score: number; size?: "sm" | "md" }) {
   const tone =
-    score >= 80 ? "text-success border-success/40" : score >= 60 ? "text-warning border-warning/40" : "text-danger border-danger/40";
+    score >= 80
+      ? "text-success border-success/40"
+      : score >= 60
+        ? "text-warning border-warning/40"
+        : "text-danger border-danger/40";
   return (
     <span
       className={cn(

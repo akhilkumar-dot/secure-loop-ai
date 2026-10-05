@@ -100,7 +100,10 @@ function ScanPage() {
   }
 
   function addLog(line: string, tone?: LogLine["tone"]) {
-    setLogs((prev): LogLine[] => [...prev, { text: line, ...(tone !== undefined ? { tone } : {}) }]);
+    setLogs((prev): LogLine[] => [
+      ...prev,
+      { text: line, ...(tone !== undefined ? { tone } : {}) },
+    ]);
   }
 
   async function startScan() {
@@ -123,7 +126,8 @@ function ScanPage() {
 
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "A scan is in progress. Leaving will not cancel it but you may lose progress.";
+      e.returnValue =
+        "A scan is in progress. Leaving will not cancel it but you may lose progress.";
     };
     window.addEventListener("beforeunload", beforeUnloadHandler);
 
@@ -177,12 +181,17 @@ function ScanPage() {
     await updateScanStatus(scanRun.id, "scanning");
     addLog("▸ fetching repository files via GitHub API…", "warn");
 
-    const { files, error: fetchErr, repoName, commitSha } = await fetchRepoFiles({
+    const {
+      files,
+      error: fetchErr,
+      repoName,
+      commitSha,
+    } = await fetchRepoFiles({
       data: {
-        repoUrl: project.repo_url,
+        repoUrl: project?.repo_url ?? "",
         ...(githubToken ? { token: githubToken } : {}),
         runId: scanRun.id,
-      }
+      },
     });
 
     if (fetchErr) {
@@ -194,13 +203,13 @@ function ScanPage() {
     }
 
     if (commitSha) {
-      await supabase
-        .from("scan_runs")
-        .update({ commit_sha: commitSha })
-        .eq("id", scanRun.id);
+      await supabase.from("scan_runs").update({ commit_sha: commitSha }).eq("id", scanRun.id);
     }
 
-    addLog(`  ✓ repository cloned · commit ${commitSha?.substring(0, 7) ?? 'unknown'} · ${files.length} source files cached`, "ok");
+    addLog(
+      `  ✓ repository cloned · commit ${commitSha?.substring(0, 7) ?? "unknown"} · ${files.length} source files cached`,
+      "ok",
+    );
     await delay(200);
 
     const fileMap = buildFileMap(files);
@@ -211,7 +220,9 @@ function ScanPage() {
 
     const sastFindings = runSast(files);
 
-    const ruleList = Array.from(new Set(sastFindings.map((f) => f.rule_id.split(".")[2]))).join(", ");
+    const ruleList = Array.from(new Set(sastFindings.map((f) => f.rule_id.split(".")[2]))).join(
+      ", ",
+    );
     addLog(
       `  sast complete · ${sastFindings.length} finding(s) · rules matched: ${ruleList || "none"}`,
       sastFindings.length > 0 ? "err" : "ok",
@@ -238,9 +249,7 @@ function ScanPage() {
       const novel = raw.filter(
         (lf) =>
           !sastFindings.some(
-            (sf) =>
-              sf.file_path === lf.file_path &&
-              Math.abs(sf.line_start - lf.line_start) <= 3,
+            (sf) => sf.file_path === lf.file_path && Math.abs(sf.line_start - lf.line_start) <= 3,
           ),
       );
       llmFindings.push(...novel.map((f) => ({ ...f, source: "llm-heuristic" })));
@@ -265,12 +274,12 @@ function ScanPage() {
 
     // ── Before/after comparison log (publishable metric) ─────────────────────
     const comparison = {
-      llm_only_findings: llmFindings.length,   // what LLM-only scan would surface
-      sast_findings: sastFindings.length,        // what deterministic rules surface
+      llm_only_findings: llmFindings.length, // what LLM-only scan would surface
+      sast_findings: sastFindings.length, // what deterministic rules surface
       total_combined: allFindings.length,
-      false_negative_reduction: sastFindings.length - llmFindings.filter(
-        (lf) => sastFindings.some((sf) => sf.file_path === lf.file_path),
-      ).length,
+      false_negative_reduction:
+        sastFindings.length -
+        llmFindings.filter((lf) => sastFindings.some((sf) => sf.file_path === lf.file_path)).length,
     };
     addLog(
       `  comparison · sast:${comparison.sast_findings} · llm-only:${comparison.llm_only_findings} · combined:${comparison.total_combined}`,
@@ -325,7 +334,10 @@ function ScanPage() {
     }
 
     const insertedFindingIds = insertedFindings.map((r: { id: string }) => r.id);
-    addLog(`  ✓ ${insertedFindingIds.length}/${allFindings.length} findings saved to database`, "ok");
+    addLog(
+      `  ✓ ${insertedFindingIds.length}/${allFindings.length} findings saved to database`,
+      "ok",
+    );
 
     // Remove old post-insert sanity check block (now using batched insert which is atomic)
 
@@ -352,7 +364,10 @@ function ScanPage() {
     const explanationMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
       const explanation = await generateExplanation(f, openrouterKey);
-      if (explanation.error_type === "transient_error" && explanation.owasp_category.includes("Quota Exceeded")) {
+      if (
+        explanation.error_type === "transient_error" &&
+        explanation.owasp_category.includes("Quota Exceeded")
+      ) {
         quotaCount++;
       }
       const { data: expRow } = await supabase
@@ -483,7 +498,9 @@ function ScanPage() {
     // ── 8. Finalize — compute real metrics from DB ────────────────────────────
     const { data: finalFindings, error: finalErr } = await supabase
       .from("findings")
-      .select("*, patches(validation_verdict, validation_diff_applies, validation_vulnerability_gone, validation_syntax_ok, validation_new_issues)")
+      .select(
+        "*, patches(validation_verdict, validation_diff_applies, validation_vulnerability_gone, validation_syntax_ok, validation_new_issues)",
+      )
       .eq("scan_run_id", scanRun.id);
 
     if (finalErr) throw new Error(`Finalize query error: ${finalErr.message}`);
@@ -497,26 +514,36 @@ function ScanPage() {
     let syntaxChecked = 0;
     let newVulnsCount = 0;
 
-    finalFindings?.forEach((f: { patches?: Array<{ validation_diff_applies?: boolean; validation_vulnerability_gone?: boolean | null; validation_syntax_ok?: boolean | null; validation_new_issues?: number }> | null }) => {
-      const patchObj = Array.isArray(f.patches) ? f.patches[0] : null;
-      if (!patchObj) return;
-      if (patchObj.validation_diff_applies === true) diffsApplied++;
-      if (patchObj.validation_vulnerability_gone === true) vulnRemoved++;
-      if (patchObj.validation_syntax_ok !== null && patchObj.validation_syntax_ok !== undefined) {
-        syntaxChecked++;
-        if (patchObj.validation_syntax_ok === true) syntaxPassed++;
-      }
-      if ((patchObj.validation_new_issues ?? 0) > 0) newVulnsCount++;
-    });
+    finalFindings?.forEach(
+      (f: {
+        patches?: Array<{
+          validation_diff_applies?: boolean;
+          validation_vulnerability_gone?: boolean | null;
+          validation_syntax_ok?: boolean | null;
+          validation_new_issues?: number;
+        }> | null;
+      }) => {
+        const patchObj = Array.isArray(f.patches) ? f.patches[0] : null;
+        if (!patchObj) return;
+        if (patchObj.validation_diff_applies === true) diffsApplied++;
+        if (patchObj.validation_vulnerability_gone === true) vulnRemoved++;
+        if (patchObj.validation_syntax_ok !== null && patchObj.validation_syntax_ok !== undefined) {
+          syntaxChecked++;
+          if (patchObj.validation_syntax_ok === true) syntaxPassed++;
+        }
+        if ((patchObj.validation_new_issues ?? 0) > 0) newVulnsCount++;
+      },
+    );
 
     const patchSuccessRate = dbTotal > 0 ? diffsApplied / dbTotal : 1;
     const vulnRemovalRate = dbTotal > 0 ? vulnRemoved / dbTotal : 1;
     const syntaxPassRate = syntaxChecked > 0 ? syntaxPassed / syntaxChecked : null;
     const newVulnsRate = dbTotal > 0 ? newVulnsCount / dbTotal : 0;
-    const dbAcceptedCount = finalFindings?.filter((f: { patches?: Array<{ validation_verdict?: string }> | null }) => {
-      const p = Array.isArray(f.patches) ? f.patches[0] : null;
-      return p?.validation_verdict === "accepted";
-    }).length ?? 0;
+    const dbAcceptedCount =
+      finalFindings?.filter((f: { patches?: Array<{ validation_verdict?: string }> | null }) => {
+        const p = Array.isArray(f.patches) ? f.patches[0] : null;
+        return p?.validation_verdict === "accepted";
+      }).length ?? 0;
 
     await supabase
       .from("scan_runs")
@@ -534,13 +561,16 @@ function ScanPage() {
       .eq("id", scanRun.id);
 
     // Compute and persist security score
-    const score = await recomputeScore(projectId, user.id);
+    const score = await recomputeScore(projectId, user?.id ?? "");
 
     setStage("done");
     addLog("", "dim");
-    addLog(`done · ${dbTotal} findings · ${dbAcceptedCount}/${dbTotal} patches validated-accepted · score: ${score.overall}`, "ok");
+    addLog(
+      `done · ${dbTotal} findings · ${dbAcceptedCount}/${dbTotal} patches validated-accepted · score: ${score.overall}`,
+      "ok",
+    );
     setDone(true);
-    } // end runScanPipeline
+  } // end runScanPipeline
 
   async function updateScanStatus(id: string, status: string) {
     await supabase.from("scan_runs").update({ status }).eq("id", id);
@@ -549,7 +579,6 @@ function ScanPage() {
   function delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
-
 
   if (loading) {
     return (
@@ -575,9 +604,7 @@ function ScanPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-10">
-        <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-          scan pipeline
-        </p>
+        <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">scan pipeline</p>
         <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
           {project?.name ?? "…"}
         </h1>
@@ -619,7 +646,8 @@ function ScanPage() {
             </div>
             <p className="font-mono text-[10px] text-subtle/60 flex items-center gap-1.5">
               <AlertTriangle className="size-3" />
-              Keys are used only in your browser and never stored server-side (unless you save them in Settings).
+              Keys are used only in your browser and never stored server-side (unless you save them
+              in Settings).
             </p>
           </div>
         )}
@@ -639,9 +667,7 @@ function ScanPage() {
               >
                 {s}
               </span>
-              {i < STAGES.length - 1 && (
-                <span className="text-subtle/30">→</span>
-              )}
+              {i < STAGES.length - 1 && <span className="text-subtle/30">→</span>}
             </span>
           ))}
         </div>
@@ -654,8 +680,8 @@ function ScanPage() {
               <p className="font-semibold text-amber-200">Rate Limit / Model Quota Exceeded</p>
               <p className="mt-1 text-amber-300/90 leading-relaxed">
                 This scan reached rate or quota limits across AI candidate models.{" "}
-                {quotaExceededCount} finding operations were skipped. Add a Gemini API
-                key in Settings to remove rate limits, then re-run the scan.
+                {quotaExceededCount} finding operations were skipped. Add a Gemini API key in
+                Settings to remove rate limits, then re-run the scan.
               </p>
               <Link
                 to="/settings"
@@ -752,5 +778,3 @@ function ScanPage() {
     </div>
   );
 }
-
-
