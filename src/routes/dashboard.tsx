@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbProject, type DbScanRun } from "@/lib/supabase";
@@ -48,6 +49,7 @@ function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{ id: string; name: string } | null>(null);
 
   const [userRepos, setUserRepos] = useState<GitHubRepoItem[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -179,10 +181,16 @@ function DashboardPage() {
     navigate({ to: "/scan/$projectId", params: { projectId: data.id } });
   }
 
-  async function deleteProject(id: string, name: string, e: React.MouseEvent) {
+  function deleteProject(id: string, name: string, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirm(`Delete "${name}" and all its scan data? This cannot be undone.`)) return;
+    setConfirmState({ id, name });
+  }
+
+  async function confirmDelete() {
+    if (!confirmState) return;
+    const { id } = confirmState;
     setDeletingId(id);
+    setConfirmState(null);
     // Delete related data first (findings, scan_runs, security_scores), then the project
     await supabase.from("findings").delete().eq("project_id", id);
     await supabase.from("scan_runs").delete().eq("project_id", id);
@@ -512,6 +520,54 @@ function DashboardPage() {
           )}
         </div>
       </main>
+
+      {/* Custom delete confirmation modal */}
+      {confirmState && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={() => setConfirmState(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-border bg-elevated p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Icon + title */}
+            <div className="flex items-start gap-4">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger/10">
+                <AlertTriangle className="size-5 text-danger" />
+              </div>
+              <div>
+                <h2 className="font-display text-sm font-semibold text-foreground">
+                  Delete project?
+                </h2>
+                <p className="mt-1 font-mono text-xs text-subtle">
+                  <span className="text-foreground">&ldquo;{confirmState.name}&rdquo;</span> and all
+                  its scan data — findings, runs, scores — will be permanently removed. This cannot
+                  be undone.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmState(null)}
+                className="rounded-full border border-border bg-background px-4 py-2 font-mono text-xs text-subtle transition-colors hover:text-foreground cursor-pointer"
+              >
+                cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex cursor-pointer items-center gap-2 rounded-full bg-danger px-4 py-2 font-mono text-xs font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                <Trash2 className="size-3" />
+                delete project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
