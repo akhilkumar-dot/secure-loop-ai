@@ -51,19 +51,25 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
 }
 
 import { createServerFn } from "@tanstack/react-start";
-import simpleGit from "simple-git";
-import * as fs from "fs/promises";
-import * as path from "path";
 
-// In-memory cache keyed by "repoUrl:commitSha"
-const cloneCache = new Map<string, { files: RepoFile[]; repoName: string; commitSha: string; error: undefined }>();
+// In-memory cache keyed by "owner/repo:commitSha"
+const repoCache = new Map<string, { files: RepoFile[]; repoName: string; commitSha: string; error: undefined }>();
+
+const GITHUB_API = "https://api.github.com";
+
+function makeHeaders(token?: string | null): HeadersInit {
+  const h: Record<string, string> = { Accept: "application/vnd.github.v3+json" };
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+}
 
 /**
- * Server function to fetch all scannable files from a GitHub repo via git clone.
+ * Server function to fetch all scannable files from a GitHub repo via GitHub REST API.
+ * Uses the Git Trees API (recursive) + blob contents — no git binary or filesystem needed.
  */
 export const fetchRepoFiles = createServerFn({ method: "POST" })
   .validator((d: { repoUrl: string; token?: string; runId: string }) => d)
-  .handler(async ({ data: { repoUrl, token, runId } }) => {
+  .handler(async ({ data: { repoUrl, token } }) => {
     const parsed = parseGitHubUrl(repoUrl);
     if (!parsed) {
       return { files: [], error: "Invalid GitHub URL", repoName: "", commitSha: undefined };
@@ -71,126 +77,106 @@ export const fetchRepoFiles = createServerFn({ method: "POST" })
 
     const { owner, repo } = parsed;
     const repoName = `${owner}/${repo}`;
-    
     const activeToken = token || process.env["GITHUB_TOKEN"] || process.env["VITE_GITHUB_TOKEN"];
-
-    // Prepare clone URL
-    let cloneUrl = repoUrl;
-    if (!cloneUrl.startsWith("http")) cloneUrl = `https://${cloneUrl}`;
-    
-    // Embed token in URL if we have one (works for both public and private repos)
-    if (activeToken) {
-       cloneUrl = cloneUrl.replace("https://", `https://x-access-token:${activeToken}@`);
-    }
+    const headers = makeHeaders(activeToken);
 
     try {
-      const git = simpleGit();
-      
-      // 2. Get remote HEAD SHA before cloning to check cache
-      const remoteInfo = await git.listRemote([cloneUrl, 'HEAD']);
-      const commitSha = remoteInfo ? remoteInfo.split('\t')[0] : "";
-      
-      if (!commitSha) {
-        return { files: [], error: "Could not determine remote commit SHA", repoName, commitSha: undefined };
+      // 1. Get default branch HEAD commit SHA
+      const repoRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
+      if (!repoRes.ok) {
+        const msg = repoRes.status === 404
+          ? "Repository not found (check URL and token for private repos)"
+          : `GitHub API error: ${repoRes.status} ${repoRes.statusText}`;
+        return { files: [], error: msg, repoName, commitSha: undefined };
+      }
+      const repoData = await repoRes.json() as { default_branch: string };
+      const defaultBranch = repoData.default_branch ?? "main";
+
+      // 2. Get the commit SHA for the default branch
+      const branchRes = await fetch(
+        `${GITHUB_API}/repos/${owner}/${repo}/branches/${defaultBranch}`,
+        { headers }
+      );
+      if (!branchRes.ok) {
+        return { files: [], error: `Could not fetch branch info: ${branchRes.statusText}`, repoName, commitSha: undefined };
+      }
+      const branchData = await branchRes.json() as { commit: { sha: string } };
+      const commitSha: string = branchData.commit.sha;
+
+      // 3. Check cache
+      const cacheKey = `${repoName}:${commitSha}`;
+      if (repoCache.has(cacheKey)) {
+        console.log(`[intake] Cache hit for ${cacheKey}`);
+        return repoCache.get(cacheKey)!;
       }
 
-      // 3. Check cache by commit SHA
-      const cacheKey = `${repoUrl}:${commitSha}`;
-      if (cloneCache.has(cacheKey)) {
-        return cloneCache.get(cacheKey)!;
+      // 4. Fetch the full file tree (recursive)
+      const treeRes = await fetch(
+        `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitSha}?recursive=1`,
+        { headers }
+      );
+      if (!treeRes.ok) {
+        return { files: [], error: `Could not fetch repo tree: ${treeRes.statusText}`, repoName, commitSha };
+      }
+      const treeData = await treeRes.json() as {
+        tree: Array<{ path: string; type: string; size?: number; sha: string }>;
+        truncated: boolean;
+      };
+
+      if (treeData.truncated) {
+        console.warn(`[intake] Tree for ${repoName} was truncated by GitHub (very large repo).`);
       }
 
-      const workDir = `/tmp/scan/${runId}`;
-      const parentDir = path.dirname(workDir);
-      await fs.mkdir(parentDir, { recursive: true });
+      // 5. Filter to scannable files
+      const eligible = treeData.tree.filter((item) => {
+        if (item.type !== "blob") return false;
+        if (!item.path) return false;
+        if (SKIP_PATTERNS.some((p) => p.test(item.path))) return false;
+        if (item.size && item.size > 100_000) return false;
+        const ext = "." + item.path.split(".").pop()?.toLowerCase();
+        return TARGET_EXTENSIONS.has(ext);
+      });
 
-      // Diagnostic check & cleanup before clone
-      try {
-        const stats = await fs.stat(workDir);
-        if (stats) {
-          const contents = await fs.readdir(workDir);
-          console.log(`[intake] Target dir ${workDir} exists prior to clone. Contents:`, contents);
-          await fs.rm(workDir, { recursive: true, force: true });
-        }
-      } catch {
-        console.log(`[intake] Target dir ${workDir} does not exist. Ready for git clone.`);
-      }
+      // 6. Prioritize high-value files
+      const score = (p: string) => {
+        if (/route|controller|handler|view|model|schema|query/i.test(p)) return 0;
+        if (/service|middleware|auth|api/i.test(p)) return 1;
+        if (/util|helper|lib/i.test(p)) return 2;
+        return 3;
+      };
+      const prioritized = eligible
+        .sort((a, b) => score(a.path) - score(b.path))
+        .slice(0, 25);
 
-      // Clone with retry pattern
-      let cloneAttempt = 0;
-      while (cloneAttempt < 2) {
-        try {
-          cloneAttempt++;
-          console.log(`[intake] Executing git clone (attempt ${cloneAttempt})...`);
-          await git.clone(cloneUrl, workDir, ['--depth', '1']);
-          break;
-        } catch (cloneErr: any) {
-          console.error(`[intake] Git clone attempt ${cloneAttempt} failed:`, cloneErr.message);
-          await fs.rm(workDir, { recursive: true, force: true });
-          if (cloneAttempt >= 2) throw cloneErr;
-        }
-      }
-
-      try {
-        // 5. Read all files from disk
-        const blobs: Array<{ path: string; size: number; fullPath: string }> = [];
-        
-        async function walkDir(dir: string) {
-          const entries = await fs.readdir(dir, { withFileTypes: true });
-          for (const entry of entries) {
-             if (SKIP_PATTERNS.some(p => p.test(entry.name))) continue;
-             
-             const fullPath = path.join(dir, entry.name);
-             if (entry.isDirectory()) {
-               await walkDir(fullPath);
-             } else {
-               const ext = "." + entry.name.split(".").pop()?.toLowerCase();
-               if (TARGET_EXTENSIONS.has(ext)) {
-                 const stat = await fs.stat(fullPath);
-                 if (stat.size <= 100_000) { // skip files >100kb
-                   const relativePath = path.relative(workDir, fullPath).replace(/\\/g, '/');
-                   blobs.push({ path: relativePath, size: stat.size, fullPath });
-                 }
-               }
-             }
+      // 7. Fetch file contents in parallel (base64 blobs via contents API)
+      const results: RepoFile[] = [];
+      await Promise.all(
+        prioritized.map(async (item) => {
+          try {
+            const contentRes = await fetch(
+              `${GITHUB_API}/repos/${owner}/${repo}/contents/${item.path}?ref=${commitSha}`,
+              { headers }
+            );
+            if (!contentRes.ok) return;
+            const contentData = await contentRes.json() as { content?: string; encoding?: string };
+            if (contentData.encoding === "base64" && contentData.content) {
+              // Decode base64 content — works in both Node.js and edge runtimes
+              const decoded = typeof Buffer !== "undefined"
+                ? Buffer.from(contentData.content.replace(/\n/g, ""), "base64").toString("utf-8")
+                : atob(contentData.content.replace(/\n/g, ""));
+              results.push({ path: item.path, content: decoded, sha: item.sha });
+            }
+          } catch (e) {
+            console.warn(`[intake] Failed to fetch ${item.path}:`, e);
           }
-        }
-        
-        await walkDir(workDir);
+        })
+      );
 
-        // Prioritize smaller, more interesting files (routes, controllers, models)
-        const prioritized = blobs.sort((a, b) => {
-          const score = (p: string) => {
-            if (/route|controller|handler|view|model|schema|query/i.test(p)) return 0;
-            if (/service|middleware|auth|api/i.test(p)) return 1;
-            if (/util|helper|lib/i.test(p)) return 2;
-            return 3;
-          };
-          return score(a.path) - score(b.path);
-        });
-
-        const topFiles = prioritized.slice(0, 25);
-        const results: RepoFile[] = [];
-
-        for (const file of topFiles) {
-           try {
-             const content = await fs.readFile(file.fullPath, "utf-8");
-             results.push({ path: file.path, content, sha: commitSha });
-           } catch {
-             // Skip files that can't be read (e.g. symlinks, binary, etc.)
-           }
-        }
-
-        const response = { files: results, repoName, commitSha, error: undefined };
-        cloneCache.set(cacheKey, response);
-        
-        return response;
-      } finally {
-        // Ensure cleanup of workDir after reading files so temp disk usage doesn't grow
-        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
-      }
+      const response = { files: results, repoName, commitSha, error: undefined };
+      repoCache.set(cacheKey, response);
+      return response;
     } catch (err: any) {
-      return { files: [], error: `Clone error: ${err.message}`, repoName, commitSha: undefined };
+      return { files: [], error: `GitHub API error: ${err.message}`, repoName, commitSha: undefined };
     }
   });
 
