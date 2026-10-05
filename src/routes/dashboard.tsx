@@ -9,6 +9,7 @@ import {
   ChevronRight,
   RefreshCw,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbProject, type DbScanRun } from "@/lib/supabase";
@@ -46,6 +47,7 @@ function DashboardPage() {
   const [sourceType, setSourceType] = useState<"git" | "zip">("git");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [userRepos, setUserRepos] = useState<GitHubRepoItem[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -175,6 +177,19 @@ function DashboardPage() {
     setNewRepoUrl("");
     // Navigate to the new project's scan page
     navigate({ to: "/scan/$projectId", params: { projectId: data.id } });
+  }
+
+  async function deleteProject(id: string, name: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm(`Delete "${name}" and all its scan data? This cannot be undone.`)) return;
+    setDeletingId(id);
+    // Delete related data first (findings, scan_runs, security_scores), then the project
+    await supabase.from("findings").delete().eq("project_id", id);
+    await supabase.from("scan_runs").delete().eq("project_id", id);
+    await supabase.from("security_scores").delete().eq("project_id", id);
+    await supabase.from("projects").delete().eq("id", id);
+    setDeletingId(null);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
   }
 
   if (loading || loadingProjects) {
@@ -413,6 +428,7 @@ function DashboardPage() {
                       score
                     </th>
                     <th className="px-5 py-3 font-medium uppercase tracking-wider" />
+                    <th className="px-5 py-3 font-medium uppercase tracking-wider" />
                   </tr>
                 </thead>
                 <tbody>
@@ -473,6 +489,20 @@ function DashboardPage() {
                           </Link>
                           <ChevronRight className="size-3 text-subtle/40" />
                         </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        <button
+                          onClick={(e) => deleteProject(p.id, p.name, e)}
+                          disabled={deletingId === p.id}
+                          title="Delete project"
+                          className="flex cursor-pointer items-center justify-center rounded-md p-1.5 text-subtle/40 transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                        >
+                          {deletingId === p.id ? (
+                            <RefreshCw className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))}
