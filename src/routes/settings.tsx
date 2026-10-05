@@ -128,53 +128,40 @@ function SettingsPage() {
           {/* AI Provider */}
           <Section title="ai configuration">
             <p className="mb-3 font-mono text-[11px] text-subtle leading-relaxed">
-              SecureLoop uses OpenAI to analyze code, explain vulnerabilities, generate patches, and validate fixes with automatic multi-model failovers.
-              Your API key is stored encrypted in Supabase and never shared.
+              SecureLoop uses{" "}
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent hover:underline font-semibold"
+              >
+                Google Gemini
+              </a>{" "}
+              (powered by gemini-3.8-flash with automatic multi-model failover) to analyze code, explain
+              vulnerabilities, generate patches, and validate fixes. You can also provide an OpenRouter or OpenAI key.
+              Your key is stored encrypted in Supabase and never shared.
             </p>
-            <Field label="OpenAI API key">
+            <Field label="Gemini API key (Google AI Studio)">
               <input
                 type="password"
                 value={geminiKey}
                 onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder="sk-proj-…"
+                placeholder="AQ.Ab8RN6… or sk-…"
                 className="w-full rounded-lg border border-border bg-elevated px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
               />
               <p className="mt-1 font-mono text-[10px] text-subtle/50">
                 Get a key at{" "}
                 <a
-                  href="https://platform.openai.com/api-keys"
+                  href="https://aistudio.google.com/app/apikey"
                   target="_blank"
                   rel="noreferrer"
                   className="text-accent hover:underline"
                 >
-                  platform.openai.com
+                  aistudio.google.com/app/apikey
                 </a>
+                . Keys starting with <code className="text-foreground">AQ.</code> or <code className="text-foreground">AIza</code> are routed to Google Gemini.
               </p>
             </Field>
-            <div className="mt-3">
-              <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                primary model routing
-              </label>
-              <div className="flex gap-2">
-                {[
-                  { id: "openai-auto", label: "Auto (GPT-4o / GPT-4o-mini)" },
-                  { id: "gpt-4o-mini", label: "GPT-4o Mini" },
-                  { id: "gpt-4o", label: "GPT-4o" },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setLlmProvider(m.id)}
-                    className={`rounded-full border px-4 py-2 font-mono text-[11px] cursor-pointer transition-colors ${
-                      llmProvider === m.id
-                        ? "border-accent/50 bg-accent/10 text-foreground"
-                        : "border-border text-subtle hover:text-foreground"
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </Section>
 
           {/* GitHub */}

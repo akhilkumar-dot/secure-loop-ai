@@ -54,7 +54,8 @@ function ScanPage() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openrouterKey, setOpenrouterKey] = useState<string>(
-    (import.meta as any).env?.VITE_OPENAI_API_KEY ??
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ??
+      (import.meta as any).env?.VITE_OPENAI_API_KEY ??
       (import.meta as any).env?.VITE_COHERE_API_KEY ??
       (import.meta as any).env?.VITE_OPENROUTER_API_KEY ??
       "",
@@ -99,11 +100,14 @@ function ScanPage() {
     if (data) {
       if ((data as any).github_token) setGithubToken((data as any).github_token);
       const dbKey = (data as any).gemini_api_key;
+      const envGemini = (import.meta as any).env?.VITE_GEMINI_API_KEY ?? "";
       const envOpenAI = (import.meta as any).env?.VITE_OPENAI_API_KEY ?? "";
       const envCohere = (import.meta as any).env?.VITE_COHERE_API_KEY ?? "";
       const envOpenRouter = (import.meta as any).env?.VITE_OPENROUTER_API_KEY ?? "";
       if (dbKey) {
         setOpenrouterKey(dbKey);
+      } else if (envGemini) {
+        setOpenrouterKey(envGemini);
       } else if (envOpenAI) {
         setOpenrouterKey(envOpenAI);
       } else if (envCohere) {
@@ -122,11 +126,12 @@ function ScanPage() {
     if (!user || !project) return;
     const effectiveKey =
       openrouterKey.trim() ||
+      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
       (import.meta as any).env?.VITE_OPENAI_API_KEY ||
       (import.meta as any).env?.VITE_COHERE_API_KEY ||
       (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
     if (!effectiveKey) {
-      setError("AI API key (OpenAI, Cohere or OpenRouter) is required. Add it in Settings or above.");
+      setError("AI API key (Google Gemini, OpenAI, or OpenRouter) is required. Add it in Settings or above.");
       return;
     }
     if (!project.repo_url) {
@@ -345,7 +350,7 @@ function ScanPage() {
     // ── 5. Generate explanations (LLM — anchored to specific finding) ─────────
     setStage("explaining");
     await updateScanStatus(scanRun.id, "explaining");
-    addLog("▸ openrouter: generating plain-language explanations per finding…", "warn");
+    addLog("▸ gemini: generating plain-language explanations per finding…", "warn");
 
     const { data: findingsData } = await supabase
       .from("findings")
@@ -356,7 +361,7 @@ function ScanPage() {
     const estimatedCalls = numFindings * 3;
     if (estimatedCalls > 15) {
       addLog(
-        `  ⓘ [pre-flight estimate] scan requires ~${estimatedCalls} LLM requests. Automatic multi-model fallback enabled across OpenRouter endpoints.`,
+        `  ⓘ [pre-flight estimate] scan requires ~${estimatedCalls} LLM requests. Automatic multi-model fallback enabled across Gemini endpoints.`,
         "dim",
       );
     }
@@ -376,7 +381,7 @@ function ScanPage() {
           why_it_happened: explanation.why_it_happened,
           owasp_category: explanation.owasp_category,
           how_fix_works: explanation.how_fix_works,
-          model: explanation.model || "meta-llama/llama-3.3-70b-instruct",
+          model: explanation.model || "gemini-3.8-flash",
           generated_at: new Date().toISOString(),
         })
         .select("id")
@@ -389,7 +394,7 @@ function ScanPage() {
     // ── 6. Generate patches ───────────────────────────────────────────────────
     setStage("patching");
     await updateScanStatus(scanRun.id, "patching");
-    addLog("▸ openrouter: generating candidate patches…", "warn");
+    addLog("▸ gemini: generating candidate patches…", "warn");
 
     const patchMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
@@ -405,7 +410,7 @@ function ScanPage() {
           finding_id: f.id,
           diff: patch.diff,
           explanation_id: expId ?? null,
-          model: "mistralai/codestral-2508",
+          model: "gemini-3.8-flash",
           generated_at: new Date().toISOString(),
           validation_new_issues: 0,
         })
@@ -419,7 +424,7 @@ function ScanPage() {
     // ── 7. Validate patches ───────────────────────────────────────────────────
     setStage("validating");
     await updateScanStatus(scanRun.id, "validating");
-    addLog("▸ openrouter: sandbox validation (re-analysis per patch)…", "warn");
+    addLog("▸ gemini: sandbox validation (re-analysis per patch)…", "warn");
 
     let accepted = 0;
     let totalFixTime = 0;
@@ -640,13 +645,13 @@ function ScanPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  AI API Key <span className="text-subtle/50">(Cohere / OpenRouter)</span>
+                  AI API Key <span className="text-subtle/50">(Gemini / OpenRouter / OpenAI)</span>
                 </label>
                 <input
                   type="password"
                   value={openrouterKey}
                   onChange={(e) => setOpenrouterKey(e.target.value)}
-                  placeholder="Cohere key or sk-or-v1-…"
+                  placeholder="AQ.…, sk-…, or sk-or-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
               </div>
@@ -697,11 +702,18 @@ function ScanPage() {
           <div className="mt-6 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 font-mono text-xs text-amber-300">
             <AlertTriangle className="size-4 shrink-0 text-amber-400 mt-0.5" />
             <div>
-              <p className="font-semibold text-amber-200">Rate Limit / Model Quota Exceeded (OpenRouter)</p>
+              <p className="font-semibold text-amber-200">Rate Limit / Model Quota Exceeded</p>
               <p className="mt-1 text-amber-300/90 leading-relaxed">
-                This scan reached rate or quota limits across OpenRouter candidate models. {quotaExceededCount} finding operations were skipped.
-                Re-run later or configure a paid OpenRouter API key in Settings.
+                This scan reached rate or quota limits across AI candidate models.{" "}
+                {quotaExceededCount} finding operations were skipped. Add a Gemini API
+                key in Settings to remove rate limits, then re-run the scan.
               </p>
+              <Link
+                to="/settings"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200 hover:bg-amber-500/20 transition-colors"
+              >
+                Go to Settings → configure Gemini key
+              </Link>
             </div>
           </div>
         )}

@@ -5,6 +5,7 @@
 import { OpenAIProvider, OpenAIProvidersExhaustedError } from "./openai";
 import { CohereProvider, CohereProvidersExhaustedError } from "./cohere";
 import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
+import { GeminiProvider, GeminiProviderExhaustedError } from "./gemini-provider";
 
 export class QuotaExceededError extends Error {
   isQuota = true;
@@ -21,35 +22,54 @@ export class QuotaExceededError extends Error {
 // In-memory cache for explanations of identical rule/message patterns within a run
 const explanationCache = new Map<string, GeminiExplanation>();
 
-function getProvider(apiKeyOverride?: string): OpenAIProvider | CohereProvider | OpenRouterProvider {
-  const openaiKey =
-    apiKeyOverride ||
+function getProvider(apiKeyOverride?: string): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
+  const geminiEnv =
+    (typeof process !== "undefined" && (process as any).env?.["GEMINI_API_KEY"]) ||
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    "";
+
+  const openaiEnv =
     (typeof process !== "undefined" && (process as any).env?.["OPENAI_API_KEY"]) ||
-    (import.meta as any).env?.VITE_OPENAI_API_KEY;
+    (import.meta as any).env?.VITE_OPENAI_API_KEY ||
+    "";
 
-  if (openaiKey && (openaiKey.startsWith("sk-proj-") || openaiKey.startsWith("sk-") || !apiKeyOverride)) {
-    return new OpenAIProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
-  }
-
-  const cohereKey =
-    apiKeyOverride ||
-    (typeof process !== "undefined" && (process as any).env?.["COHERE_API_KEY"]) ||
-    (import.meta as any).env?.VITE_COHERE_API_KEY;
-
-  if (cohereKey && cohereKey.length > 0 && !cohereKey.startsWith("sk-")) {
-    return new CohereProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
-  }
-
-  const openrouterKey =
-    apiKeyOverride ||
+  const openrouterEnv =
     (typeof process !== "undefined" && (process as any).env?.["OPENROUTER_API_KEY"]) ||
-    (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+    (import.meta as any).env?.VITE_OPENROUTER_API_KEY ||
+    "";
 
-  if (openrouterKey) {
-    return new OpenRouterProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+  const effective = (apiKeyOverride && apiKeyOverride.trim()) || geminiEnv || openaiEnv || openrouterEnv;
+
+  // Gemini API keys start with "AQ." (Google AI Studio) or "AIza" (legacy) or match Gemini env
+  if (
+    effective &&
+    (effective.startsWith("AQ.") ||
+      effective.startsWith("AIza") ||
+      effective === geminiEnv)
+  ) {
+    return new GeminiProvider(effective);
   }
 
-  return new OpenAIProvider(apiKeyOverride ? { apiKey: apiKeyOverride } : {});
+  // OpenRouter keys start with "sk-or-"
+  if (effective && effective.startsWith("sk-or-")) {
+    return new OpenRouterProvider(apiKeyOverride ? { apiKey: effective } : {});
+  }
+
+  // OpenAI keys start with "sk-proj-" or plain "sk-"
+  if (effective && (effective.startsWith("sk-proj-") || effective.startsWith("sk-"))) {
+    return new OpenAIProvider(apiKeyOverride ? { apiKey: effective } : {});
+  }
+
+  // Cohere keys are alphanumeric strings without "sk-"
+  if (effective && effective.length > 20 && !effective.startsWith("sk-")) {
+    return new CohereProvider(apiKeyOverride ? { apiKey: effective } : {});
+  }
+
+  if (geminiEnv) {
+    return new GeminiProvider(geminiEnv);
+  }
+
+  return new OpenRouterProvider(apiKeyOverride ? { apiKey: effective } : {});
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -207,15 +227,20 @@ Return ONLY valid JSON with this schema:
     explanationCache.set(cacheKey, parsed);
     return parsed;
   } catch (err: any) {
-    console.error("OpenRouter explanation error:", err);
-    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
+    console.error("AI explanation error:", err);
+    const isExhausted =
+      err instanceof AllProvidersExhaustedError ||
+      err instanceof GeminiProviderExhaustedError ||
+      err instanceof OpenAIProvidersExhaustedError ||
+      err instanceof CohereProvidersExhaustedError ||
+      err?.isExhausted;
 
     if (isExhausted) {
       return {
-        what_it_is: "OpenRouter rate limit or quota exceeded across candidate models.",
-        why_it_happened: "Rate limit reached during scan. Re-run scan later or configure a paid OpenRouter API key.",
-        owasp_category: "Quota Exceeded (OpenRouter)",
-        how_fix_works: "Re-run scan later or provide a paid OpenRouter API key in Settings.",
+        what_it_is: "AI rate limit or quota exceeded.",
+        why_it_happened: "Rate limit reached during scan. Re-run scan later or check your API key in Settings.",
+        owasp_category: "Quota Exceeded",
+        how_fix_works: "Re-run scan later or provide a valid API key in Settings.",
         error_type: "transient_error",
         confidence: "not_applicable",
         is_applicable: false,
@@ -285,14 +310,19 @@ The diff must be minimal (only change what's necessary to fix the vulnerability)
     );
     return JSON.parse(res.content) as GeminiPatch;
   } catch (err: any) {
-    console.error("OpenRouter patch error:", err);
-    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
+    console.error("AI patch error:", err);
+    const isExhausted =
+      err instanceof AllProvidersExhaustedError ||
+      err instanceof GeminiProviderExhaustedError ||
+      err instanceof OpenAIProvidersExhaustedError ||
+      err instanceof CohereProvidersExhaustedError ||
+      err?.isExhausted;
     return {
       diff: isExhausted
-        ? "// Patch skipped — OpenRouter model fallback quota exceeded."
+        ? "// Patch skipped — AI model quota exceeded."
         : "// Patch generation failed due to an AI error. Click retry to regenerate.",
       explanation: isExhausted
-        ? "Patch generation skipped because all candidate models hit OpenRouter rate limits."
+        ? "Patch generation skipped because all candidate AI models hit rate limits."
         : `Could not generate patch: ${err?.message || "AI error"}.`,
     };
   }
@@ -361,15 +391,20 @@ Return ONLY valid JSON:
       failed_check: parsed.failed_check ?? undefined,
     };
   } catch (err: any) {
-    console.error("OpenRouter validation error:", err);
-    const isExhausted = err instanceof AllProvidersExhaustedError || err?.isExhausted;
+    console.error("AI validation error:", err);
+    const isExhausted =
+      err instanceof AllProvidersExhaustedError ||
+      err instanceof GeminiProviderExhaustedError ||
+      err instanceof OpenAIProvidersExhaustedError ||
+      err instanceof CohereProvidersExhaustedError ||
+      err?.isExhausted;
     return {
       vulnerability_gone: false,
       tests_passed: false,
       new_issues: 0,
       verdict: "rejected",
       logs: isExhausted
-        ? ["Validation skipped — OpenRouter rate limits reached across candidate models"]
+        ? ["Validation skipped — AI rate limits reached across all candidate models"]
         : ["Validation failed — could not parse AI response"],
       failed_check: isExhausted ? "quota_exceeded" : "validation_error",
     };
