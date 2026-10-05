@@ -1,8 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://tzdlytanerwfadbqzhue.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6ZGx5dGFuZXJ3ZmFkYnF6aHVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyODIxNzMsImV4cCI6MjEwMjg1ODE3M30.0zhMPFzcPeL2dfWy90ZaZZ8nti8posjm1HPNbb3gu4c";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    "Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.",
+  );
+}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -29,12 +34,18 @@ export interface DbScanRun {
   commit_sha?: string;
   tools: string[];
   findings_count: number;
+  /** patch_success_rate: diffs that applied / total patches */
   patch_success_rate?: number;
-  test_pass_rate?: number;
+  /** syntax_pass_rate: patches with syntax_ok === true / total (renamed from test_pass_rate) */
+  syntax_pass_rate?: number;
+  /** vuln_removal_rate: patches with vulnerability_gone === true / total */
   vuln_removal_rate?: number;
+  /** new_vulns_rate: patches with new_issues > 0 / total */
   new_vulns_rate?: number;
+  /** acceptance_rate: developer-accepted / total (0 at scan time, updated after decisions) */
   acceptance_rate?: number;
   time_to_fix_seconds?: number;
+  error_message?: string;
   created_at: string;
 }
 
@@ -51,7 +62,15 @@ export interface DbFinding {
   line_end?: number;
   vulnerability_class?: "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other";
   raw_message?: string;
-  status: "open" | "explained" | "patched" | "validated" | "accepted" | "rejected" | "likely_false_positive" | "dismissed";
+  status:
+    | "open"
+    | "explained"
+    | "patched"
+    | "validated"
+    | "accepted"
+    | "rejected"
+    | "likely_false_positive"
+    | "dismissed";
   code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
   created_at: string;
 }
@@ -77,13 +96,22 @@ export interface DbPatch {
   explanation_id?: string;
   model?: string;
   generated_at: string;
-  validation_vulnerability_gone?: boolean;
-  validation_tests_passed?: boolean;
+  /** Deterministic: did the unified diff apply cleanly? */
+  validation_diff_applies?: boolean;
+  /** Deterministic (SAST): is the original rule_id absent from patched file? null = not checked (llm-heuristic) */
+  validation_vulnerability_gone?: boolean | null;
+  /** Deterministic: syntax check result. null = not checked (non-JS/TS) */
+  validation_syntax_ok?: boolean | null;
+  /** Count of NEW SAST findings introduced by the patch */
   validation_new_issues: number;
+  /** "deterministic" = SAST re-scan was used; "llm-opinion" = used for llm-heuristic findings */
+  validation_method?: "deterministic" | "llm-opinion";
   validation_logs?: string[];
   validation_validated_at?: string;
   validation_verdict?: "accepted" | "rejected";
   validation_failed_check?: string;
+  /** Non-binding human-readable LLM review comment */
+  validation_llm_review?: string;
 }
 
 export interface DbSecurityScore {
@@ -95,13 +123,17 @@ export interface DbSecurityScore {
   xss: number;
   csrf: number;
   deserialization: number;
+  /** Covers command injection, path traversal, hardcoded secrets, session misconfig */
+  other: number;
   computed_at: string;
 }
 
 export interface DbProfile {
   id: string;
   display_name?: string;
+  /** @deprecated Use github_token_enc. Plaintext token — to be removed after migration. */
   github_token?: string;
+  /** @deprecated Use ai_api_key_enc. Plaintext key — to be removed after migration. */
   gemini_api_key?: string;
   llm_provider: string;
   created_at: string;

@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertCircle }
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbFinding, type DbExplanation, type DbPatch } from "@/lib/supabase";
 import { Logo, SeverityBadge, StatusBadge, TerminalWindow, CodeView, DiffView } from "@/components/chrome";
+import { recomputeScore } from "@/lib/score";
 
 export const Route = createFileRoute("/finding/$findingId")({
   head: () => ({
@@ -146,6 +147,11 @@ function FindingDetailPage() {
       .update({ status: action === "accept" ? "accepted" : "rejected" })
       .eq("id", findingId);
 
+    // Recompute security score so dashboard reflects the decision immediately
+    if (finding.project_id) {
+      await recomputeScore(finding.project_id, user.id);
+    }
+
     setDecisionDone(action);
     setDeciding(false);
     setShowQuiz(true);
@@ -159,6 +165,11 @@ function FindingDetailPage() {
       .from("findings")
       .update({ status: "dismissed" })
       .eq("id", findingId);
+
+    // Recompute score so dismissed findings stop penalizing the score
+    if (finding.project_id) {
+      await recomputeScore(finding.project_id, user.id);
+    }
 
     setFinding((prev) => (prev ? { ...prev, status: "dismissed" } : null));
     setDeciding(false);

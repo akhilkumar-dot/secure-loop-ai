@@ -23,6 +23,13 @@ export interface SastFinding {
   matched_text: string;
   code_lines: Array<{ n: number; code: string; vuln: boolean }>;
   source: "sast" | "llm-heuristic";
+  /**
+   * Confidence level of this finding.
+   * high   = user input seen in the code window (strong signal)
+   * medium = pattern matched but user input not confirmed in window
+   * low    = pattern only (no user input context available)
+   */
+  confidence: "high" | "medium" | "low";
 }
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
@@ -74,6 +81,7 @@ const ruleNoSqlDirectInput: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 3),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -102,6 +110,7 @@ const ruleNoSqlWhere: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -130,6 +139,7 @@ const ruleXssInnerHtml: Rule = (lines, fp) => {
       matched_text: lines[i]!.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -158,6 +168,7 @@ const ruleXssResSend: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 3),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -185,6 +196,7 @@ const ruleXssEval: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -211,6 +223,7 @@ const ruleXssTemplate: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -221,24 +234,28 @@ const ruleJavaSqlInjection: Rule = (lines, fp) => {
   const out: SastFinding[] = [];
   const javaSqlRe = /(?:createQuery|createNativeQuery|executeQuery|jdbcTemplate\.query|jdbcTemplate\.update)\s*\(/;
   const concatRe = /\+\s*\w+|`[^`]*\$\{/;
+  // Require evidence of user input in a ±15 line window to reduce FP
+  const userInputJava = /request\.getParameter|@RequestParam|@PathVariable|getHeader|getBody/;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (javaSqlRe.test(line) && concatRe.test(line)) {
-      out.push({
-        rule_id: "java.spring.security.audit.sqli.spring-sqli-concat",
-        cwe: "CWE-89",
-        severity: "critical",
-        vulnerability_class: "sqli",
-        file_path: fp,
-        line_start: i + 1,
-        line_end: i + 1,
-        raw_message:
-          "Dynamic SQL query constructed with string concatenation in Java/Spring. Use parameterized queries or JPQL named parameters.",
-        matched_text: line.trim(),
-        code_lines: mkCodeLines(lines, i, 3),
-        source: "sast",
-      });
-    }
+    if (!javaSqlRe.test(line) || !concatRe.test(line)) continue;
+    const window15 = lines.slice(Math.max(0, i - 15), Math.min(lines.length, i + 15)).join("\n");
+    const hasUserInput = userInputJava.test(window15);
+    out.push({
+      rule_id: "java.spring.security.audit.sqli.spring-sqli-concat",
+      cwe: "CWE-89",
+      severity: "critical",
+      vulnerability_class: "sqli",
+      file_path: fp,
+      line_start: i + 1,
+      line_end: i + 1,
+      raw_message:
+        "Dynamic SQL query constructed with string concatenation in Java/Spring. Use parameterized queries or JPQL named parameters.",
+      matched_text: line.trim(),
+      code_lines: mkCodeLines(lines, i, 3),
+      source: "sast",
+      confidence: hasUserInput ? "high" : "medium",
+    });
   }
   return out;
 };
@@ -247,24 +264,27 @@ const ruleJavaSqlInjection: Rule = (lines, fp) => {
 const ruleJavaXssWriter: Rule = (lines, fp) => {
   const out: SastFinding[] = [];
   const writerRe = /response\.getWriter\(\)\.(?:write|print|println)\s*\(/;
+  const userInputJava = /request\.getParameter|@RequestParam|@PathVariable|getHeader/;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (writerRe.test(line) && /\+\s*\w+/.test(line)) {
-      out.push({
-        rule_id: "java.lang.security.audit.xss.servlet-response-writer",
-        cwe: "CWE-79",
-        severity: "high",
-        vulnerability_class: "xss",
-        file_path: fp,
-        line_start: i + 1,
-        line_end: i + 1,
-        raw_message:
-          "Unsanitized data written directly to HttpServletResponse output stream. This can lead to Reflected XSS.",
-        matched_text: line.trim(),
-        code_lines: mkCodeLines(lines, i, 2),
-        source: "sast",
-      });
-    }
+    if (!writerRe.test(line) || !/\+\s*\w+/.test(line)) continue;
+    const window15 = lines.slice(Math.max(0, i - 15), Math.min(lines.length, i + 15)).join("\n");
+    const hasUserInput = userInputJava.test(window15);
+    out.push({
+      rule_id: "java.lang.security.audit.xss.servlet-response-writer",
+      cwe: "CWE-79",
+      severity: "high",
+      vulnerability_class: "xss",
+      file_path: fp,
+      line_start: i + 1,
+      line_end: i + 1,
+      raw_message:
+        "Unsanitized data written directly to HttpServletResponse output stream. This can lead to Reflected XSS.",
+      matched_text: line.trim(),
+      code_lines: mkCodeLines(lines, i, 2),
+      source: "sast",
+      confidence: hasUserInput ? "high" : "medium",
+    });
   }
   return out;
 };
@@ -273,24 +293,27 @@ const ruleJavaXssWriter: Rule = (lines, fp) => {
 const ruleJavaCommandInjection: Rule = (lines, fp) => {
   const out: SastFinding[] = [];
   const execRe = /(?:Runtime\.getRuntime\(\)\.exec|new\s+ProcessBuilder)\s*\(/;
+  const userInputJava = /request\.getParameter|@RequestParam|@PathVariable|getHeader/;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (execRe.test(line) && /\+\s*\w+/.test(line)) {
-      out.push({
-        rule_id: "java.lang.security.audit.command-injection.process-builder",
-        cwe: "CWE-78",
-        severity: "critical",
-        vulnerability_class: "other",
-        file_path: fp,
-        line_start: i + 1,
-        line_end: i + 1,
-        raw_message:
-          "OS Command execution with concatenated input parameters in Java. Use fixed command arrays without shell execution.",
-        matched_text: line.trim(),
-        code_lines: mkCodeLines(lines, i, 2),
-        source: "sast",
-      });
-    }
+    if (!execRe.test(line) || !/\+\s*\w+/.test(line)) continue;
+    const window15 = lines.slice(Math.max(0, i - 15), Math.min(lines.length, i + 15)).join("\n");
+    const hasUserInput = userInputJava.test(window15);
+    out.push({
+      rule_id: "java.lang.security.audit.command-injection.process-builder",
+      cwe: "CWE-78",
+      severity: "critical",
+      vulnerability_class: "other",
+      file_path: fp,
+      line_start: i + 1,
+      line_end: i + 1,
+      raw_message:
+        "OS Command execution with concatenated input parameters in Java. Use fixed command arrays without shell execution.",
+      matched_text: line.trim(),
+      code_lines: mkCodeLines(lines, i, 2),
+      source: "sast",
+      confidence: hasUserInput ? "high" : "medium",
+    });
   }
   return out;
 };
@@ -322,12 +345,17 @@ const ruleJavaCsrfDisabled: Rule = (lines, fp) => {
 };
 
 /* ── Rule 7: CSRF — Express POST route with no CSRF check ────────────────── */
-const ruleCsrf: Rule = (lines, fp) => {
+// Accepts an optional repoContext string (all other file contents joined) so CSRF
+// middleware defined in a separate file (e.g. app.js) is not missed.
+const ruleCsrf: Rule = (lines, fp, repoContext?: string) => {
   const out: SastFinding[] = [];
   const postRoute = /(?:router|app)\.(post|put|patch|delete)\s*\(/;
   const csrfCheck = /csrfToken|csrf\(|csurf|req\.csrfToken|x-csrf/i;
-  let hasCsrfMiddleware = lines.some((l) => csrfCheck.test(l));
-  if (hasCsrfMiddleware) return out; // file already uses CSRF protection
+  // Check current file AND the full repo context for CSRF middleware
+  const hasCsrfMiddleware =
+    lines.some((l) => csrfCheck.test(l)) ||
+    (repoContext ? csrfCheck.test(repoContext) : false);
+  if (hasCsrfMiddleware) return out; // repo already uses CSRF protection
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (!postRoute.test(line)) continue;
@@ -344,6 +372,7 @@ const ruleCsrf: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "medium",
     });
   }
   return out;
@@ -482,6 +511,7 @@ const ruleDeserialize: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -509,6 +539,7 @@ const ruleCommandInjection: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -537,6 +568,7 @@ const rulePathTraversal: Rule = (lines, fp) => {
       matched_text: line.trim(),
       code_lines: mkCodeLines(lines, i, 2),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;
@@ -566,6 +598,7 @@ const ruleHardcodedSecrets: Rule = (lines, fp) => {
       matched_text: line.trim().replace(/(['"`])[^'"`]{3}[^'"`]*\1/, "$1***$1"),
       code_lines: mkCodeLines(lines, i, 1),
       source: "sast",
+      confidence: "high",
     });
   }
   return out;

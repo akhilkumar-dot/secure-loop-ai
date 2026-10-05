@@ -1,6 +1,14 @@
 /**
  * Google Gemini Provider
- * Uses @google/generative-ai SDK with gemini-2.0-flash (primary) and gemini-1.5-flash (fallback).
+ * Uses @google/generative-ai SDK.
+ *
+ * Primary model: gemini-2.5-flash (latest fast model with thinking)
+ * Fallbacks:     gemini-1.5-flash → gemini-1.5-flash-8b
+ *
+ * Model names are configurable via env:
+ *   GEMINI_MODEL_PRIMARY   (default: gemini-2.5-flash)
+ *   GEMINI_MODEL_FALLBACKS (comma-separated, default: gemini-1.5-flash,gemini-1.5-flash-8b)
+ *
  * Compatible with the same generateChatCompletion interface as OpenAIProvider / OpenRouterProvider.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -15,11 +23,22 @@ export class GeminiProviderExhaustedError extends Error {
 
 export type StageName = "explanation_generation" | "patch_generation" | "default";
 
+function resolveModels(): string[] {
+  const primary =
+    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_PRIMARY"]) ||
+    "gemini-2.5-flash";
+  const fallbacksEnv =
+    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_FALLBACKS"]) ||
+    "gemini-1.5-flash,gemini-1.5-flash-8b";
+  return [primary, ...fallbacksEnv.split(",").map((m) => m.trim()).filter(Boolean)];
+}
+
 const STAGE_MODELS: Record<StageName, string[]> = {
-  explanation_generation: ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
-  patch_generation:       ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
-  default:                ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
+  explanation_generation: resolveModels(),
+  patch_generation: resolveModels(),
+  default: resolveModels(),
 };
+
 
 export class GeminiProvider {
   private apiKey: string;
