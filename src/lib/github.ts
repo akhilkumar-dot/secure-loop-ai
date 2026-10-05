@@ -46,6 +46,8 @@ const SKIP_PATTERNS = [
   /package-lock\.json/,
   /yarn\.lock/,
   /pnpm-lock/,
+  /__tests__\//,
+  /\.(test|spec)\.[a-z0-9]+$/i,
 ];
 
 /**
