@@ -159,4 +159,35 @@ export interface DbEducationCheck {
   user_answer?: number;
   correct?: boolean;
   answered_at?: string;
+  question_id?: string;
+  tier?: "easy" | "medium" | "hard";
+  misconception_id?: string | null;
+  vuln_class?: "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other";
+}
+
+export interface DbRecurringMisconception {
+  id: string;
+  user_id: string;
+  vuln_class: string;
+  misconception_id: string;
+  misconception_label: string;
+  supporting_attempt_ids: string[];
+  occurrences: number;
+  flagged_at: string;
+  resolved_at?: string | null;
+}
+
+export interface DbMasteryProfile {
+  id: string;
+  user_id: string;
+  vuln_class: "sqli" | "xss" | "csrf" | "insecure_deserialization";
+  attempts_count: number;
+  correct_count: number;
+  tier_reached: "easy" | "medium" | "hard";
+  next_review_at?: string | null;
+  interval_days: number;
+  ease_factor: number;
+  last_reviewed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }

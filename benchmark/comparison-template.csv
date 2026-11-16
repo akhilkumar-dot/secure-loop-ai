@@ -1,0 +1,20 @@
+sample_id,sample_name,vuln_class,cwe,secureloop_detected,secureloop_patch_valid,copilot_detected,copilot_patch_valid,copilot_fix_notes,snyk_detected,snyk_patch_valid,snyk_fix_notes
+sqli-01,SQL Injection in Node.js (String Concat),sqli,CWE-89,true,true,,,manual evaluation pending,,,manual evaluation pending
+sqli-02,MongoDB NoSQL Operator Injection,sqli,CWE-943,true,true,,,manual evaluation pending,,,manual evaluation pending
+sqli-03,NoSQL $where Clause String Concat,sqli,CWE-943,true,true,,,manual evaluation pending,,,manual evaluation pending
+sqli-04,SQL Parameterized Query (Safe Control),sqli,CWE-89,false,n/a,,,manual evaluation pending,,,manual evaluation pending
+xss-01,DOM-based XSS via innerHTML,xss,CWE-79,true,true,,,manual evaluation pending,,,manual evaluation pending
+xss-02,Reflected XSS in HTTP Response,xss,CWE-79,true,true,,,manual evaluation pending,,,manual evaluation pending
+xss-03,Code Injection / XSS via eval(),xss,CWE-79,true,true,,,manual evaluation pending,,,manual evaluation pending
+xss-04,Safe DOM Text Insertion (Safe Control),xss,CWE-79,false,n/a,,,manual evaluation pending,,,manual evaluation pending
+csrf-01,Spring Security CSRF Disabled,csrf,CWE-352,true,true,,,manual evaluation pending,,,manual evaluation pending
+csrf-02,State-changing POST without CSRF Token,csrf,CWE-352,true,true,,,manual evaluation pending,,,manual evaluation pending
+csrf-03,Session Cookie Missing Secure Flag,csrf,CWE-614,true,true,,,manual evaluation pending,,,manual evaluation pending
+csrf-04,Strict Session + CSURF Token (Safe Control),csrf,CWE-352,false,n/a,,,manual evaluation pending,,,manual evaluation pending
+deser-01,node-serialize IIFE Deserialization,insecure_deserialization,CWE-502,true,true,,,manual evaluation pending,,,manual evaluation pending
+deser-02,Python pickle.loads() on Request Data,insecure_deserialization,CWE-502,true,false,,,manual evaluation pending,,,manual evaluation pending
+deser-03,Java ObjectInputStream Deserialization,insecure_deserialization,CWE-502,true,false,,,manual evaluation pending,,,manual evaluation pending
+deser-04,Safe JSON.parse() Parser (Safe Control),insecure_deserialization,CWE-502,false,n/a,,,manual evaluation pending,,,manual evaluation pending
+cmd-01,OS Command Injection via exec(),other,CWE-78,true,true,,,manual evaluation pending,,,manual evaluation pending
+cred-01,Hardcoded Production Credentials,other,CWE-798,true,true,,,manual evaluation pending,,,manual evaluation pending
+

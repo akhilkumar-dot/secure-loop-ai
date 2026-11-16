@@ -13,7 +13,15 @@ export const Route = createFileRoute("/findings/$projectId")({
 });
 
 type VulnClass = "sqli" | "xss" | "csrf" | "insecure_deserialization" | "other";
-type FindingStatus = "open" | "explained" | "patched" | "validated" | "accepted" | "rejected";
+type FindingStatus =
+  | "open"
+  | "explained"
+  | "patched"
+  | "validated"
+  | "accepted"
+  | "rejected"
+  | "likely_false_positive"
+  | "dismissed";
 
 const vulnClassLabels: Record<string, string> = {
   sqli: "SQL Injection",
@@ -97,14 +105,23 @@ function FindingsPage() {
           <h1 className="font-display text-2xl font-semibold tracking-tight">
             {project?.name ?? "…"}
           </h1>
-          <Link
-            to="/scan/$projectId"
-            params={{ projectId }}
-            className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
-          >
-            <span className="size-1.5 rounded-full bg-accent" />
-            new scan
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/report/$projectId"
+              params={{ projectId }}
+              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
+            >
+              export PDF report
+            </Link>
+            <Link
+              to="/scan/$projectId"
+              params={{ projectId }}
+              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
+            >
+              <span className="size-1.5 rounded-full bg-accent" />
+              new scan
+            </Link>
+          </div>
         </div>
 
         {/* Filters */}
@@ -127,7 +144,7 @@ function FindingsPage() {
             </button>
           ))}
           <span className="mx-1 text-border">|</span>
-          {(["all", "open", "validated", "accepted", "rejected"] as const).map((st) => (
+          {(["all", "open", "validated", "accepted", "rejected", "likely_false_positive"] as const).map((st) => (
             <button
               key={st}
               onClick={() => setFilterStatus(st as FindingStatus | "all")}
@@ -137,7 +154,7 @@ function FindingsPage() {
                   : "border-border text-subtle hover:text-foreground"
               }`}
             >
-              {st}
+              {st === "likely_false_positive" ? "false positives" : st}
             </button>
           ))}
         </div>

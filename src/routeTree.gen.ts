@@ -10,12 +10,15 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as LearnRouteImport } from './routes/learn'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ScoreRouteImport } from './routes/score'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as FindingFindingIdRouteImport } from './routes/finding.$findingId'
 import { Route as FindingsProjectIdRouteImport } from './routes/findings.$projectId'
+import { Route as ReportProjectIdRouteImport } from './routes/report.$projectId'
 import { Route as ScanProjectIdRouteImport } from './routes/scan.$projectId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,9 +26,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BenchmarkRoute = BenchmarkRouteImport.update({
+  id: '/benchmark',
+  path: '/benchmark',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LearnRoute = LearnRouteImport.update({
+  id: '/learn',
+  path: '/learn',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -53,6 +66,11 @@ const FindingsProjectIdRoute = FindingsProjectIdRouteImport.update({
   path: '/findings/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReportProjectIdRoute = ReportProjectIdRouteImport.update({
+  id: '/report/$projectId',
+  path: '/report/$projectId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ScanProjectIdRoute = ScanProjectIdRouteImport.update({
   id: '/scan/$projectId',
   path: '/scan/$projectId',
@@ -61,76 +79,97 @@ const ScanProjectIdRoute = ScanProjectIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/benchmark': typeof BenchmarkRoute
   '/dashboard': typeof DashboardRoute
+  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/score': typeof ScoreRoute
   '/settings': typeof SettingsRoute
   '/finding/$findingId': typeof FindingFindingIdRoute
   '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/report/$projectId': typeof ReportProjectIdRoute
   '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/benchmark': typeof BenchmarkRoute
   '/dashboard': typeof DashboardRoute
+  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/score': typeof ScoreRoute
   '/settings': typeof SettingsRoute
   '/finding/$findingId': typeof FindingFindingIdRoute
   '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/report/$projectId': typeof ReportProjectIdRoute
   '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/benchmark': typeof BenchmarkRoute
   '/dashboard': typeof DashboardRoute
+  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/score': typeof ScoreRoute
   '/settings': typeof SettingsRoute
   '/finding/$findingId': typeof FindingFindingIdRoute
   '/findings/$projectId': typeof FindingsProjectIdRoute
+  '/report/$projectId': typeof ReportProjectIdRoute
   '/scan/$projectId': typeof ScanProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/benchmark'
     | '/dashboard'
+    | '/learn'
     | '/login'
     | '/score'
     | '/settings'
     | '/finding/$findingId'
     | '/findings/$projectId'
+    | '/report/$projectId'
     | '/scan/$projectId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/benchmark'
     | '/dashboard'
+    | '/learn'
     | '/login'
     | '/score'
     | '/settings'
     | '/finding/$findingId'
     | '/findings/$projectId'
+    | '/report/$projectId'
     | '/scan/$projectId'
   id:
     | '__root__'
     | '/'
+    | '/benchmark'
     | '/dashboard'
+    | '/learn'
     | '/login'
     | '/score'
     | '/settings'
     | '/finding/$findingId'
     | '/findings/$projectId'
+    | '/report/$projectId'
     | '/scan/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BenchmarkRoute: typeof BenchmarkRoute
   DashboardRoute: typeof DashboardRoute
+  LearnRoute: typeof LearnRoute
   LoginRoute: typeof LoginRoute
   ScoreRoute: typeof ScoreRoute
   SettingsRoute: typeof SettingsRoute
   FindingFindingIdRoute: typeof FindingFindingIdRoute
   FindingsProjectIdRoute: typeof FindingsProjectIdRoute
+  ReportProjectIdRoute: typeof ReportProjectIdRoute
   ScanProjectIdRoute: typeof ScanProjectIdRoute
 }
 
@@ -143,11 +182,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/benchmark': {
+      id: '/benchmark'
+      path: '/benchmark'
+      fullPath: '/benchmark'
+      preLoaderRoute: typeof BenchmarkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/learn': {
+      id: '/learn'
+      path: '/learn'
+      fullPath: '/learn'
+      preLoaderRoute: typeof LearnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -185,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FindingsProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/report/$projectId': {
+      id: '/report/$projectId'
+      path: '/report/$projectId'
+      fullPath: '/report/$projectId'
+      preLoaderRoute: typeof ReportProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/scan/$projectId': {
       id: '/scan/$projectId'
       path: '/scan/$projectId'
@@ -197,12 +257,15 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BenchmarkRoute: BenchmarkRoute,
   DashboardRoute: DashboardRoute,
+  LearnRoute: LearnRoute,
   LoginRoute: LoginRoute,
   ScoreRoute: ScoreRoute,
   SettingsRoute: SettingsRoute,
   FindingFindingIdRoute: FindingFindingIdRoute,
   FindingsProjectIdRoute: FindingsProjectIdRoute,
+  ReportProjectIdRoute: ReportProjectIdRoute,
   ScanProjectIdRoute: ScanProjectIdRoute,
 }
 export const routeTree = rootRouteImport

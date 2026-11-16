@@ -11,11 +11,20 @@ import {
   ShieldCheck,
   Trash2,
   AlertTriangle,
+  Brain,
+  BookOpen,
+  Clock,
+  Target,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase, type DbProject, type DbScanRun } from "@/lib/supabase";
+import { supabase, type DbProject, type DbScanRun, type DbRecurringMisconception } from "@/lib/supabase";
 import { fetchUserGitHubRepos, type GitHubRepoItem } from "@/lib/github";
 import { Logo, ScoreBadge } from "@/components/chrome";
+import { getRecurringMisconceptions } from "@/lib/misconception";
+import { getAllMasteryProfiles, type MasteryProfileRow } from "@/lib/mastery-db";
+import { daysUntilReview, getMasteryLevel } from "@/lib/spaced-repetition";
+import { seedDemoData } from "@/lib/demo-seeder";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -55,6 +64,12 @@ function DashboardPage() {
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [activeGithubToken, setActiveGithubToken] = useState<string | null>(null);
 
+  // Misconception diagnosis state
+  const [recurringMisconceptions, setRecurringMisconceptions] = useState<DbRecurringMisconception[]>([]);
+  // Mastery and Spaced Repetition state
+  const [masteryProfiles, setMasteryProfiles] = useState<MasteryProfileRow[]>([]);
+  const [seedingDemo, setSeedingDemo] = useState(false);
+
   useEffect(() => {
     if (!loading && !user) {
       navigate({ to: "/login" });
@@ -65,6 +80,8 @@ function DashboardPage() {
     if (user) {
       loadProjects();
       loadUserTokenAndRepos();
+      loadRecurringMisconceptions();
+      loadMasteryProfiles();
     }
   }, [user]);
 
@@ -90,6 +107,35 @@ function DashboardPage() {
       setUserRepos(repos);
     }
     setLoadingRepos(false);
+  }
+
+  async function loadRecurringMisconceptions() {
+    if (!user) return;
+    const data = await getRecurringMisconceptions(user.id);
+    setRecurringMisconceptions(data as DbRecurringMisconception[]);
+  }
+
+  async function loadMasteryProfiles() {
+    if (!user) return;
+    const profiles = await getAllMasteryProfiles(user.id);
+    setMasteryProfiles(profiles);
+  }
+
+  async function handleLoadDemo() {
+    if (!user) return;
+    setSeedingDemo(true);
+    try {
+      await seedDemoData(user.id);
+      await Promise.all([
+        loadProjects(),
+        loadRecurringMisconceptions(),
+        loadMasteryProfiles(),
+      ]);
+    } catch (e: any) {
+      console.error("Failed to seed demo data:", e);
+    } finally {
+      setSeedingDemo(false);
+    }
   }
 
   async function loadProjects() {
@@ -151,6 +197,10 @@ function DashboardPage() {
     setCreateError(null);
     if (!newProjectName.trim()) {
       setCreateError("Project name is required.");
+      return;
+    }
+    if (sourceType === "git" && !newRepoUrl.trim()) {
+      setCreateError("GitHub repository URL is required for git projects.");
       return;
     }
     setCreating(true);
@@ -228,6 +278,20 @@ function DashboardPage() {
                 : user?.email}
             </span>
             <Link
+              to="/learn"
+              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+            >
+              <Brain className="size-3 text-accent" />
+              learn
+            </Link>
+            <Link
+              to="/benchmark"
+              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+            >
+              <Clock className="size-3 text-accent" />
+              benchmark
+            </Link>
+            <Link
               to="/score"
               className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
@@ -263,6 +327,15 @@ function DashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={handleLoadDemo}
+              disabled={seedingDemo}
+              title="Preload realistic OWASP WebGoat audit, findings, misconception diagnosis, and due reviews"
+              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground disabled:opacity-50"
+            >
+              <Sparkles className="size-3 text-accent" />
+              {seedingDemo ? "loading demo…" : "load demo data"}
+            </button>
+            <button
               onClick={loadProjects}
               className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
             >
@@ -277,6 +350,187 @@ function DashboardPage() {
               <Plus className="size-3" />
               new scan
             </button>
+          </div>
+        </div>
+
+        {/* ── Misconception Diagnosis Card ────────────────────────────── */}
+        {recurringMisconceptions.length > 0 && (
+          <div className="mt-8 rounded-xl border border-warning/30 bg-warning/5 p-5">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning/10 mt-0.5">
+                <Brain className="size-4 text-warning" />
+              </div>
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-wider text-warning mb-0.5">
+                  learning diagnosis
+                </p>
+                <h2 className="font-display text-sm font-semibold text-foreground">
+                  Recurring misconceptions detected
+                </h2>
+                <p className="mt-1 font-mono text-[11px] text-subtle">
+                  These patterns appeared in 3 of your last 4 quiz attempts for the same vulnerability class.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {recurringMisconceptions.map((m) => (
+                <div
+                  key={m.id}
+                  className="rounded-lg border border-border bg-elevated p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="font-mono text-xs text-foreground leading-relaxed">
+                        {m.misconception_label}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-[10px] text-subtle">
+                        <span className="inline-flex items-center gap-1 uppercase tracking-wider">
+                          <span
+                            className={`size-1.5 rounded-full ${
+                              m.vuln_class === "sqli"
+                                ? "bg-danger"
+                                : m.vuln_class === "xss"
+                                  ? "bg-success"
+                                  : m.vuln_class === "csrf"
+                                    ? "bg-subtle"
+                                    : "bg-warning"
+                            }`}
+                          />
+                          {m.vuln_class}
+                        </span>
+                        <span>
+                          triggered in{" "}
+                          <span className="text-warning font-semibold">
+                            {(m.supporting_attempt_ids as string[] | undefined)?.length ?? m.occurrences} of your last 4
+                          </span>{" "}
+                          answers for this class
+                        </span>
+                        <span className="text-subtle/60">
+                          flagged {new Date(m.flagged_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                    <Link
+                      to="/score"
+                      className="shrink-0 font-mono text-[10px] text-accent hover:underline"
+                    >
+                      view score →
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-center gap-2 font-mono text-[11px] text-subtle">
+              <BookOpen className="size-3 text-accent" />
+              <span>
+                Practice these topics to clear the diagnosis — correct answers push the flag out.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Spaced Repetition: Due for Review & Mastery ──────────────── */}
+        <div className="mt-8 rounded-xl border border-border bg-elevated p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-7 items-center justify-center rounded-lg bg-accent/10">
+                <Clock className="size-4 text-accent" />
+              </div>
+              <div>
+                <h2 className="font-display text-sm font-semibold text-foreground">
+                  Spaced Repetition & Due Reviews
+                </h2>
+                <p className="font-mono text-[11px] text-subtle">
+                  Adaptive SM-2 review schedule based on your recent quiz attempts
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/learn"
+              className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 font-mono text-[11px] text-subtle hover:text-foreground"
+            >
+              <span>open learning hub</span>
+              <ChevronRight className="size-3" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { key: "sqli" as const, label: "SQL Injection" },
+              { key: "xss" as const, label: "XSS" },
+              { key: "csrf" as const, label: "CSRF" },
+              { key: "insecure_deserialization" as const, label: "Deserialization" },
+            ].map((cls) => {
+              const prof = masteryProfiles.find((p) => p.vuln_class === cls.key);
+              const attempts = prof?.attempts_count ?? 0;
+              const correct = prof?.correct_count ?? 0;
+              const tier = prof?.tier_reached ?? "easy";
+              const level = getMasteryLevel(attempts, correct, tier);
+              const days = prof?.next_review_at ? daysUntilReview(prof.next_review_at) : null;
+              const isDue = days === null || days <= 0;
+
+              return (
+                <div
+                  key={cls.key}
+                  className={`rounded-lg border p-3.5 flex flex-col justify-between ${
+                    isDue
+                      ? "border-warning/40 bg-warning/5"
+                      : "border-border bg-background"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-display text-xs font-semibold text-foreground">
+                        {cls.label}
+                      </span>
+                      <span
+                        className={`font-mono text-[9px] uppercase px-1.5 py-0.5 rounded border ${
+                          level === "mastered"
+                            ? "border-success/40 text-success bg-success/10"
+                            : level === "learning"
+                              ? "border-warning/40 text-warning bg-warning/10"
+                              : "border-border text-subtle"
+                        }`}
+                      >
+                        {level}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] font-mono text-subtle mb-3">
+                      <span>tier: {tier}</span>
+                      {attempts > 0 && <span>acc: {Math.round((correct / attempts) * 100)}%</span>}
+                    </div>
+
+                    <div className="font-mono text-xs">
+                      {isDue ? (
+                        <span className="text-warning font-semibold flex items-center gap-1.5">
+                          <span className="size-1.5 rounded-full bg-warning animate-pulse" />
+                          Due for review
+                        </span>
+                      ) : (
+                        <span className="text-subtle">
+                          Next review in <strong className="text-foreground">{days}</strong> day{days === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <Link
+                    to="/learn"
+                    className={`mt-3 flex items-center justify-center gap-1.5 rounded py-1.5 font-mono text-[11px] transition-colors ${
+                      isDue
+                        ? "bg-warning/15 text-warning hover:bg-warning/25 font-semibold"
+                        : "bg-elevated text-subtle hover:text-foreground border border-border"
+                    }`}
+                  >
+                    <Target className="size-3" />
+                    {isDue ? "Review now" : "Practice"}
+                  </Link>
+                </div>
+              );
+            })}
           </div>
         </div>
 

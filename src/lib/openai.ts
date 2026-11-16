@@ -33,11 +33,7 @@ export class OpenAIProvider {
   private maxAttempts: number;
 
   constructor(config: OpenAIConfig = {}) {
-    this.apiKey =
-      config.apiKey ||
-      (typeof process !== "undefined" && (process as any).env?.["OPENAI_API_KEY"]) ||
-      (import.meta as any).env?.VITE_OPENAI_API_KEY ||
-      "";
+    this.apiKey = (config.apiKey || "").trim();
     this.stageModels = config.stageModels || DEFAULT_OPENAI_STAGE_MODELS;
     this.maxAttempts = config.maxAttempts || 4;
   }
@@ -47,6 +43,11 @@ export class OpenAIProvider {
     stage: StageName = "default",
     options: { temperature?: number; responseFormatJson?: boolean } = {},
   ): Promise<{ content: string; modelUsed: string }> {
+    if (!this.apiKey) {
+      throw new Error(
+        "OpenAI API key is missing. Please enter your API key in the Pipeline Configuration above the scan.",
+      );
+    }
     const models = this.stageModels[stage] || this.stageModels.default;
     const errorsRecorded: Record<string, string> = {};
 

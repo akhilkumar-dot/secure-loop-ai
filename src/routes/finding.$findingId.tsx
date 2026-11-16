@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbFinding, type DbExplanation, type DbPatch } from "@/lib/supabase";
@@ -19,6 +20,16 @@ import {
   DiffView,
 } from "@/components/chrome";
 import { recomputeScore } from "@/lib/score";
+import {
+  pickQuestion,
+  getMisconceptionId,
+  getUnlockedTiers,
+  type VulnClass,
+  type Tier,
+  type TieredQuestion,
+} from "@/lib/quiz-bank";
+import { detectAndSaveRecurringMisconceptions } from "@/lib/misconception";
+import { updateMasteryAfterAnswer } from "@/lib/mastery-db";
 
 export const Route = createFileRoute("/finding/$findingId")({
   head: () => ({
@@ -45,48 +56,12 @@ function FindingDetailPage() {
   const [quizAnswer, setQuizAnswer] = useState<number | null>(null);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
-  const quizData = {
-    sqli: {
-      question: "Why do parameterized queries prevent SQL injection?",
-      options: [
-        "They encrypt the input before reaching the database",
-        "The query structure is parsed before user data is bound — input can never become SQL syntax",
-        "They strip all quotes from user input",
-        "They run queries in a read-only transaction",
-      ],
-      correctIndex: 1,
-    },
-    xss: {
-      question: "What is the safest default way to render user text in React?",
-      options: [
-        "dangerouslySetInnerHTML with a regex filter",
-        "Plain JSX interpolation — React escapes output by default",
-        "innerHTML after replacing <script> tags",
-        "Base64-encoding the text first",
-      ],
-      correctIndex: 1,
-    },
-    csrf: {
-      question: "Why doesn't SameSite=Lax cookie alone fully replace CSRF tokens?",
-      options: [
-        "SameSite is ignored by mobile browsers",
-        "Legacy clients, top-level GET navigations, and subdomains still send cookies — a token proves intent",
-        "CSRF tokens are encrypted, cookies are not",
-        "SameSite only works over HTTP/2",
-      ],
-      correctIndex: 1,
-    },
-    insecure_deserialization: {
-      question: "Why is JSON preferred over pickle for untrusted input in Python?",
-      options: [
-        "JSON is faster to parse",
-        "JSON describes data only — it has no mechanism to construct objects or execute code during parsing",
-        "pickle is deprecated since Python 3.10",
-        "JSON automatically validates types",
-      ],
-      correctIndex: 1,
-    },
-  };
+  // Tiered quiz state
+  const [activeQuestion, setActiveQuestion] = useState<TieredQuestion | null>(null);
+  const [activeTier, setActiveTier] = useState<Tier>("easy");
+  const [unlockedTiers, setUnlockedTiers] = useState<Set<Tier>>(new Set(["easy"]));
+  const [attemptCount, setAttemptCount] = useState(0);
+  const [loadingTier, setLoadingTier] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -165,41 +140,114 @@ function FindingDetailPage() {
     setDecisionDone(action);
     setDeciding(false);
     setShowQuiz(true);
+    // Eagerly load the quiz question for this vuln class
+    if (finding.vulnerability_class) {
+      await loadQuizForFinding(finding.vulnerability_class as VulnClass);
+    }
+  }
+
+  async function loadQuizForFinding(vulnClass: VulnClass) {
+    if (!user) return;
+    setLoadingTier(true);
+
+    // Fetch user's attempt history for this vuln class (server-side tier check)
+    const { data: pastAttempts } = await supabase
+      .from("education_checks")
+      .select("tier, correct, answered_at")
+      .eq("user_id", user.id)
+      .eq("vuln_class", vulnClass)
+      .order("answered_at", { ascending: true });
+
+    const attempts = (pastAttempts ?? []) as Array<{ tier: Tier; correct: boolean }>;
+    const unlocked = getUnlockedTiers(attempts);
+    setUnlockedTiers(unlocked);
+
+    // Pick the highest unlocked tier
+    const bestTier: Tier = unlocked.has("hard")
+      ? "hard"
+      : unlocked.has("medium")
+        ? "medium"
+        : "easy";
+    setActiveTier(bestTier);
+
+    // Count how many questions of this tier the user has already seen (for rotation)
+    const tierAttempts = attempts.filter((a) => a.tier === bestTier);
+    const count = tierAttempts.length;
+    setAttemptCount(count);
+
+    const question = pickQuestion(vulnClass, bestTier, count);
+    setActiveQuestion(question);
+    setLoadingTier(false);
   }
 
   async function dismissFalsePositive() {
     if (!finding || !user) return;
     setDeciding(true);
 
-    await supabase.from("findings").update({ status: "dismissed" }).eq("id", findingId);
+    await supabase.from("findings").update({ status: "likely_false_positive" }).eq("id", findingId);
 
-    // Recompute score so dismissed findings stop penalizing the score
+    // Recompute score so false-positive findings stop penalizing the score
     if (finding.project_id) {
       await recomputeScore(finding.project_id, user.id);
     }
 
-    setFinding((prev) => (prev ? { ...prev, status: "dismissed" } : null));
+    setFinding((prev) => (prev ? { ...prev, status: "likely_false_positive" } : null));
     setDeciding(false);
   }
 
   async function submitQuizAnswer() {
-    if (quizAnswer === null || !finding || !user) return;
-    const vulnClass = finding.vulnerability_class as keyof typeof quizData;
-    const quiz = quizData[vulnClass];
-    if (!quiz) return;
+    if (quizAnswer === null || !finding || !user || !activeQuestion) return;
 
-    const isCorrect = quizAnswer === quiz.correctIndex;
+    const vulnClass = finding.vulnerability_class as VulnClass;
+    const isCorrect = quizAnswer === activeQuestion.correctIndex;
+    const misconceptionId = getMisconceptionId(activeQuestion, quizAnswer);
 
+    // ── Server-side tier gate ──────────────────────────────────────────────
+    // Re-verify the tier is still unlocked (do not trust client-side state)
+    if (activeTier !== "easy") {
+      const { data: pastAttempts } = await supabase
+        .from("education_checks")
+        .select("tier, correct")
+        .eq("user_id", user.id)
+        .eq("vuln_class", vulnClass)
+        .order("answered_at", { ascending: true });
+
+      const attempts = (pastAttempts ?? []) as Array<{ tier: Tier; correct: boolean }>;
+      const stillUnlocked = getUnlockedTiers(attempts);
+      if (!stillUnlocked.has(activeTier)) {
+        // Tier was revoked between page load and submission — reject silently
+        console.warn("[quiz] Tier no longer unlocked, rejecting submission");
+        return;
+      }
+    }
+
+    // ── Persist the answer ────────────────────────────────────────────────
     await supabase.from("education_checks").insert({
       finding_id: findingId,
       user_id: user.id,
-      question: quiz.question,
-      options: quiz.options,
-      correct_index: quiz.correctIndex,
+      question_id: activeQuestion.id,
+      vuln_class: vulnClass,
+      tier: activeTier,
+      question: activeQuestion.question,
+      options: activeQuestion.options.map((o) => o.text),
+      correct_index: activeQuestion.correctIndex,
       user_answer: quizAnswer,
       correct: isCorrect,
+      misconception_id: misconceptionId,
       answered_at: new Date().toISOString(),
     });
+
+    // ── Detect recurring misconceptions and persist flags ─────────────────
+    const recurring = await detectAndSaveRecurringMisconceptions(user.id, vulnClass);
+
+    // ── Update Mastery & Spaced Repetition ────────────────────────────────
+    await updateMasteryAfterAnswer(
+      user.id,
+      vulnClass,
+      activeTier,
+      isCorrect,
+      recurring.length > 0,
+    );
 
     setQuizSubmitted(true);
   }
@@ -208,9 +256,9 @@ function FindingDetailPage() {
   const canAccept =
     validation?.validation_verdict === "accepted" || validation?.validation_vulnerability_gone;
 
-  const quiz = finding?.vulnerability_class
-    ? quizData[finding.vulnerability_class as keyof typeof quizData]
-    : null;
+  // Use activeQuestion from the tiered quiz bank (loaded after decision)
+  // Fall back to null if vuln class has no questions
+  const quiz = activeQuestion;
 
   const isFalsePositive =
     finding?.status === "likely_false_positive" ||
@@ -532,62 +580,96 @@ function FindingDetailPage() {
         )}
 
         {/* Post-decision quiz */}
-        {showQuiz && quiz && (
+        {showQuiz && (
           <div className="mt-8">
             <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
               education check
             </p>
-            <TerminalWindow title={`quiz — ${finding.vulnerability_class}`}>
-              <div className="text-subtle text-xs mb-3">// quick check before the fix lands</div>
-              <div className="text-foreground mb-4">{quiz.question}</div>
-              <div className="space-y-2">
-                {quiz.options.map((opt, i) => (
-                  <button
-                    key={i}
-                    disabled={quizSubmitted}
-                    onClick={() => setQuizAnswer(i)}
-                    className={`block w-full cursor-pointer text-left px-3 py-1.5 rounded transition-colors font-mono text-[11px] ${
-                      quizSubmitted
-                        ? i === quiz.correctIndex
-                          ? "text-success"
-                          : i === quizAnswer && i !== quiz.correctIndex
-                            ? "text-danger"
-                            : "text-subtle/50"
-                        : quizAnswer === i
-                          ? "text-foreground bg-accent/10"
-                          : "text-subtle hover:text-foreground"
+            {loadingTier ? (
+              <div className="rounded-lg border border-border bg-elevated p-6 font-mono text-xs text-subtle animate-pulse">
+                loading question…
+              </div>
+            ) : quiz ? (
+              <TerminalWindow title={`quiz — ${finding.vulnerability_class} · ${activeTier}`}>
+                {/* Tier badge */}
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="font-mono text-[10px] text-subtle">// tier:</span>
+                  <span
+                    className={`font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                      activeTier === "hard"
+                        ? "border-danger/40 text-danger"
+                        : activeTier === "medium"
+                          ? "border-warning/40 text-warning"
+                          : "border-subtle/40 text-subtle"
                     }`}
                   >
-                    {String.fromCharCode(97 + i)}) {opt}
-                    {quizSubmitted && i === quiz.correctIndex && " ✓ correct"}
-                    {quizSubmitted && i === quizAnswer && i !== quiz.correctIndex && " ✗"}
-                  </button>
-                ))}
-              </div>
-              {!quizSubmitted ? (
-                <button
-                  onClick={submitQuizAnswer}
-                  disabled={quizAnswer === null}
-                  className="mt-4 pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 font-mono text-[11px] text-subtle hover:text-foreground disabled:opacity-40"
-                >
-                  submit answer
-                </button>
-              ) : (
-                <div className="mt-4 border-t border-border pt-3">
-                  <span
-                    className={quizAnswer === quiz.correctIndex ? "text-success" : "text-danger"}
-                  >
-                    {quizAnswer === quiz.correctIndex ? "✓ correct!" : "✗ not quite"}
+                    {activeTier}
                   </span>
-                  <Link
-                    to="/score"
-                    className="ml-4 text-accent hover:underline font-mono text-[11px]"
-                  >
-                    view your security score →
-                  </Link>
+                  {activeTier !== "easy" && (
+                    <span className="font-mono text-[10px] text-success">unlocked</span>
+                  )}
                 </div>
-              )}
-            </TerminalWindow>
+                <div className="text-foreground mb-4">{quiz.question}</div>
+                <div className="space-y-2">
+                  {quiz.options.map((opt, i) => (
+                    <button
+                      key={i}
+                      disabled={quizSubmitted}
+                      onClick={() => setQuizAnswer(i)}
+                      className={`block w-full cursor-pointer text-left px-3 py-1.5 rounded transition-colors font-mono text-[11px] ${
+                        quizSubmitted
+                          ? i === quiz.correctIndex
+                            ? "text-success"
+                            : i === quizAnswer && i !== quiz.correctIndex
+                              ? "text-danger"
+                              : "text-subtle/50"
+                          : quizAnswer === i
+                            ? "text-foreground bg-accent/10"
+                            : "text-subtle hover:text-foreground"
+                      }`}
+                    >
+                      {String.fromCharCode(97 + i)}) {typeof opt === "string" ? opt : (opt as any).text}
+                      {quizSubmitted && i === quiz.correctIndex && " ✓ correct"}
+                      {quizSubmitted && i === quizAnswer && i !== quiz.correctIndex && " ✗"}
+                    </button>
+                  ))}
+                </div>
+                {!quizSubmitted ? (
+                  <button
+                    onClick={submitQuizAnswer}
+                    disabled={quizAnswer === null}
+                    className="mt-4 pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 font-mono text-[11px] text-subtle hover:text-foreground disabled:opacity-40"
+                  >
+                    submit answer
+                  </button>
+                ) : (
+                  <div className="mt-4 border-t border-border pt-3 space-y-2">
+                    <span
+                      className={quizAnswer === quiz.correctIndex ? "text-success" : "text-danger"}
+                    >
+                      {quizAnswer === quiz.correctIndex ? "✓ correct!" : "✗ not quite"}
+                    </span>
+                    {quizAnswer !== quiz.correctIndex && (
+                      <p className="font-mono text-[10px] text-subtle mt-1">
+                        correct answer: {String.fromCharCode(97 + quiz.correctIndex)})
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 mt-2">
+                      <Link
+                        to="/score"
+                        className="text-accent hover:underline font-mono text-[11px]"
+                      >
+                        view your security score →
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </TerminalWindow>
+            ) : (
+              <div className="rounded-lg border border-border bg-elevated p-6 font-mono text-xs text-subtle">
+                no quiz available for this vulnerability class
+              </div>
+            )}
           </div>
         )}
       </main>

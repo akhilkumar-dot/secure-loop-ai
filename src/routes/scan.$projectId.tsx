@@ -54,7 +54,7 @@ function ScanPage() {
   const [scanning, setScanning] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openrouterKey, setOpenrouterKey] = useState<string>("");
+  const [aiApiKey, setAiApiKey] = useState<string>("");
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
@@ -107,7 +107,7 @@ function ScanPage() {
 
   async function startScan() {
     if (!user || !project) return;
-    const effectiveKey = openrouterKey.trim();
+    const effectiveKey = aiApiKey.trim();
     if (!effectiveKey) {
       setError("AI API key is required. Enter it in the Pipeline Configuration above.");
       return;
@@ -171,8 +171,17 @@ function ScanPage() {
   }
 
   async function runScanPipeline(scanRun: { id: string }, effectiveKey: string) {
+    const providerLabel =
+      effectiveKey.startsWith("AQ.") || effectiveKey.startsWith("AIza")
+        ? "gemini"
+        : effectiveKey.startsWith("sk-or-")
+          ? "openrouter"
+          : effectiveKey.startsWith("sk-")
+            ? "openai"
+            : "gemini";
+
     addLog(`$ secureloop scan ${project!.repo_url}`);
-    addLog("  detector: sast-rules (deterministic) + gemini (explain/patch/validate)", "dim");
+    addLog(`  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`, "dim");
     await delay(300);
 
     // Fetch repo files
@@ -234,7 +243,7 @@ function ScanPage() {
     );
 
     // ── 3b. LLM secondary pass (heuristic — for logic bugs SAST can't catch) ─
-    addLog("▸ gemini: heuristic secondary pass (logic/access-control bugs)…", "warn");
+    addLog(`▸ ${providerLabel}: heuristic secondary pass (logic/access-control bugs)…`, "warn");
 
     // Send files in small batches; LLM findings are labeled llm-heuristic
     const llmFindings: any[] = [];
@@ -243,7 +252,7 @@ function ScanPage() {
 
     for (let b = 0; b < batches.length; b++) {
       addLog(`  llm batch ${b + 1}/${batches.length}: ${batches[b]!.length} files…`, "dim");
-      const raw = await analyzeCodeForVulnerabilities(batches[b]!, openrouterKey);
+      const raw = await analyzeCodeForVulnerabilities(batches[b]!, effectiveKey);
       // Only keep LLM findings NOT already covered by a SAST rule at the same file+line
       const novel = raw.filter(
         (lf) =>
@@ -343,7 +352,7 @@ function ScanPage() {
     // ── 5. Generate explanations (LLM — anchored to specific finding) ─────────
     setStage("explaining");
     await updateScanStatus(scanRun.id, "explaining");
-    addLog("▸ gemini: generating plain-language explanations per finding…", "warn");
+    addLog(`▸ ${providerLabel}: generating plain-language explanations per finding…`, "warn");
 
     const { data: findingsData } = await supabase
       .from("findings")
@@ -354,7 +363,7 @@ function ScanPage() {
     const estimatedCalls = numFindings * 3;
     if (estimatedCalls > 15) {
       addLog(
-        `  ⓘ [pre-flight estimate] scan requires ~${estimatedCalls} LLM requests. Automatic multi-model fallback enabled across Gemini endpoints.`,
+        `  ⓘ [pre-flight estimate] scan requires ~${estimatedCalls} LLM requests. Automatic multi-model fallback enabled across endpoints.`,
         "dim",
       );
     }
@@ -362,7 +371,7 @@ function ScanPage() {
     let quotaCount = 0;
     const explanationMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
-      const explanation = await generateExplanation(f, openrouterKey);
+      const explanation = await generateExplanation(f, effectiveKey);
       if (
         explanation.error_type === "transient_error" &&
         explanation.owasp_category.includes("Quota Exceeded")
@@ -377,7 +386,7 @@ function ScanPage() {
           why_it_happened: explanation.why_it_happened,
           owasp_category: explanation.owasp_category,
           how_fix_works: explanation.how_fix_works,
-          model: explanation.model || "gemini-3.8-flash",
+          model: explanation.model || providerLabel,
           generated_at: new Date().toISOString(),
         })
         .select("id")
@@ -390,12 +399,12 @@ function ScanPage() {
     // ── 6. Generate patches ───────────────────────────────────────────────────
     setStage("patching");
     await updateScanStatus(scanRun.id, "patching");
-    addLog("▸ gemini: generating candidate patches…", "warn");
+    addLog(`▸ ${providerLabel}: generating candidate patches…`, "warn");
 
     const patchMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
       const fileContent = fileMap.get(f.file_path);
-      const patch = await generatePatch(f, fileContent, openrouterKey);
+      const patch = await generatePatch(f, fileContent, effectiveKey);
       if (patch.diff.includes("quota exceeded")) {
         quotaCount++;
       }
@@ -406,7 +415,7 @@ function ScanPage() {
           finding_id: f.id,
           diff: patch.diff,
           explanation_id: expId ?? null,
-          model: "gemini-3.8-flash",
+          model: providerLabel,
           generated_at: new Date().toISOString(),
           validation_new_issues: 0,
         })
@@ -420,7 +429,7 @@ function ScanPage() {
     // ── 7. Validate patches ───────────────────────────────────────────────────
     setStage("validating");
     await updateScanStatus(scanRun.id, "validating");
-    addLog("▸ gemini: sandbox validation (re-analysis per patch)…", "warn");
+    addLog(`▸ ${providerLabel}: sandbox validation (re-analysis per patch)…`, "warn");
 
     let accepted = 0;
     let totalFixTime = 0;
@@ -624,8 +633,8 @@ function ScanPage() {
                 </label>
                 <input
                   type="password"
-                  value={openrouterKey}
-                  onChange={(e) => setOpenrouterKey(e.target.value)}
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
                   placeholder="AQ.…, sk-…, or sk-or-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />

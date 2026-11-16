@@ -76,13 +76,21 @@ function ScorePage() {
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
           <Logo />
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2 font-mono text-xs text-subtle hover:text-foreground"
-          >
-            <ArrowLeft className="size-3" />
-            dashboard
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="flex items-center gap-1.5 font-mono text-xs text-subtle hover:text-foreground"
+            >
+              <ArrowLeft className="size-3" />
+              dashboard
+            </Link>
+            <Link
+              to="/learn"
+              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+            >
+              learning hub
+            </Link>
+          </div>
         </div>
       </header>
 

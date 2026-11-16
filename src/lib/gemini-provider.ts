@@ -48,11 +48,12 @@ export class GeminiProvider {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey =
-      apiKey ||
-      (typeof process !== "undefined" && (process as any).env?.["GEMINI_API_KEY"]) ||
-      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-      "";
+    this.apiKey = (apiKey || "").trim();
+    if (!this.apiKey) {
+      throw new Error(
+        "Gemini API key is required. Please enter your API key in the Pipeline Configuration above the scan.",
+      );
+    }
   }
 
   async generateChatCompletion(

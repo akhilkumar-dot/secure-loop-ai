@@ -23,54 +23,37 @@ export class QuotaExceededError extends Error {
 const explanationCache = new Map<string, GeminiExplanation>();
 
 function getProvider(
-  apiKeyOverride?: string,
+  apiKey: string,
 ): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
-  const geminiEnv =
-    (typeof process !== "undefined" && (process as any).env?.["GEMINI_API_KEY"]) ||
-    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-    "";
+  const effective = (apiKey || "").trim();
 
-  const openaiEnv =
-    (typeof process !== "undefined" && (process as any).env?.["OPENAI_API_KEY"]) ||
-    (import.meta as any).env?.VITE_OPENAI_API_KEY ||
-    "";
+  if (!effective) {
+    throw new Error(
+      "No AI API key provided. Please enter your API key in the Pipeline Configuration above the scan.",
+    );
+  }
 
-  const openrouterEnv =
-    (typeof process !== "undefined" && (process as any).env?.["OPENROUTER_API_KEY"]) ||
-    (import.meta as any).env?.VITE_OPENROUTER_API_KEY ||
-    "";
-
-  const effective =
-    (apiKeyOverride && apiKeyOverride.trim()) || geminiEnv || openaiEnv || openrouterEnv;
-
-  // Gemini API keys start with "AQ." (Google AI Studio) or "AIza" (legacy) or match Gemini env
-  if (
-    effective &&
-    (effective.startsWith("AQ.") || effective.startsWith("AIza") || effective === geminiEnv)
-  ) {
+  // Gemini API keys start with "AQ." (Google AI Studio) or "AIza" (legacy)
+  if (effective.startsWith("AQ.") || effective.startsWith("AIza")) {
     return new GeminiProvider(effective);
   }
 
   // OpenRouter keys start with "sk-or-"
-  if (effective && effective.startsWith("sk-or-")) {
-    return new OpenRouterProvider(apiKeyOverride ? { apiKey: effective } : {});
+  if (effective.startsWith("sk-or-")) {
+    return new OpenRouterProvider({ apiKey: effective });
   }
 
   // OpenAI keys start with "sk-proj-" or plain "sk-"
-  if (effective && (effective.startsWith("sk-proj-") || effective.startsWith("sk-"))) {
-    return new OpenAIProvider(apiKeyOverride ? { apiKey: effective } : {});
+  if (effective.startsWith("sk-proj-") || effective.startsWith("sk-")) {
+    return new OpenAIProvider({ apiKey: effective });
   }
 
   // Cohere keys are alphanumeric strings without "sk-"
-  if (effective && effective.length > 20 && !effective.startsWith("sk-")) {
-    return new CohereProvider(apiKeyOverride ? { apiKey: effective } : {});
+  if (effective.length > 20 && !effective.startsWith("sk-")) {
+    return new CohereProvider({ apiKey: effective });
   }
 
-  if (geminiEnv) {
-    return new GeminiProvider(geminiEnv);
-  }
-
-  return new OpenRouterProvider(apiKeyOverride ? { apiKey: effective } : {});
+  return new GeminiProvider(effective);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */

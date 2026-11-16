@@ -79,8 +79,8 @@ export function computeScore(findings: FindingRow[]): ScoreBreakdown {
   };
 
   for (const f of findings) {
-    // Skip dismissed or developer-accepted findings
-    if (f.status === "dismissed" || f.status === "accepted") continue;
+    // Skip dismissed, developer-accepted, or false positive findings
+    if (f.status === "dismissed" || f.status === "accepted" || f.status === "likely_false_positive") continue;
 
     // Check if patch was validated+accepted (auto-accepted by AI and not overridden)
     const patchArr = Array.isArray(f.patches) ? f.patches : f.patches ? [f.patches] : [];

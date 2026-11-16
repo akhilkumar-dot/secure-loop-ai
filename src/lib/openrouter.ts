@@ -47,11 +47,7 @@ export class OpenRouterProvider {
   private maxAttempts: number;
 
   constructor(config: OpenRouterConfig = {}) {
-    this.apiKey =
-      config.apiKey ||
-      (typeof process !== "undefined" && (process as any).env?.["OPENROUTER_API_KEY"]) ||
-      (import.meta as any).env?.VITE_OPENROUTER_API_KEY ||
-      "";
+    this.apiKey = (config.apiKey || "").trim();
     this.stageModels = config.stageModels || DEFAULT_STAGE_MODELS;
     this.referer = config.referer || "https://secureloop.ai";
     this.title = config.title || "SecureLoop AI";
@@ -63,6 +59,11 @@ export class OpenRouterProvider {
     stage: StageName = "default",
     options: { temperature?: number; responseFormatJson?: boolean } = {},
   ): Promise<{ content: string; modelUsed: string }> {
+    if (!this.apiKey) {
+      throw new Error(
+        "OpenRouter API key is missing. Please enter your API key in the Pipeline Configuration above the scan.",
+      );
+    }
     const models = this.stageModels[stage] || this.stageModels.default;
     const errorsRecorded: Record<string, string> = {};
 
