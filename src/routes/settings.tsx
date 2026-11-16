@@ -17,8 +17,6 @@ function SettingsPage() {
   const { user, loading, signOut } = useAuth();
   const [displayName, setDisplayName] = useState("");
   const [githubToken, setGithubToken] = useState("");
-  const [geminiKey, setGeminiKey] = useState("");
-  const [llmProvider, setLlmProvider] = useState("gemini");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +36,6 @@ function SettingsPage() {
     if (data) {
       setDisplayName((data as any).display_name ?? "");
       setGithubToken((data as any).github_token ?? "");
-      setGeminiKey((data as any).gemini_api_key ?? "");
-      setLlmProvider((data as any).llm_provider ?? "gemini");
     }
     setLoadingProfile(false);
   }
@@ -53,8 +49,6 @@ function SettingsPage() {
       id: user.id,
       display_name: displayName,
       github_token: githubToken || null,
-      gemini_api_key: geminiKey || null,
-      llm_provider: llmProvider,
       updated_at: new Date().toISOString(),
     });
 
@@ -114,46 +108,6 @@ function SettingsPage() {
                 placeholder="Ada Lovelace"
                 className="w-full rounded-lg border border-border bg-elevated px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
               />
-            </Field>
-          </Section>
-
-          {/* AI Provider */}
-          <Section title="ai configuration">
-            <p className="mb-3 font-mono text-[11px] text-subtle leading-relaxed">
-              SecureLoop uses{" "}
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-accent hover:underline font-semibold"
-              >
-                Google Gemini
-              </a>{" "}
-              (powered by gemini-3.8-flash with automatic multi-model failover) to analyze code,
-              explain vulnerabilities, generate patches, and validate fixes. You can also provide an
-              OpenRouter or OpenAI key. Your key is stored encrypted in Supabase and never shared.
-            </p>
-            <Field label="Gemini API key (Google AI Studio)">
-              <input
-                type="password"
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder="AQ.Ab8RN6… or sk-…"
-                className="w-full rounded-lg border border-border bg-elevated px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
-              />
-              <p className="mt-1 font-mono text-[10px] text-subtle/50">
-                Get a key at{" "}
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent hover:underline"
-                >
-                  aistudio.google.com/app/apikey
-                </a>
-                . Keys starting with <code className="text-foreground">AQ.</code> or{" "}
-                <code className="text-foreground">AIza</code> are routed to Google Gemini.
-              </p>
             </Field>
           </Section>
 

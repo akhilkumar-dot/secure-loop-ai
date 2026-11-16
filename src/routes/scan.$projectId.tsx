@@ -89,13 +89,12 @@ function ScanPage() {
   async function fetchSettings() {
     const { data } = await supabase
       .from("profiles")
-      .select("github_token, gemini_api_key")
+      .select("github_token")
       .eq("id", user!.id)
       .single();
     if (data) {
-      const d = data as { github_token?: string; gemini_api_key?: string };
+      const d = data as { github_token?: string };
       if (d.github_token) setGithubToken(d.github_token);
-      if (d.gemini_api_key) setOpenrouterKey(d.gemini_api_key);
     }
   }
 
@@ -110,7 +109,7 @@ function ScanPage() {
     if (!user || !project) return;
     const effectiveKey = openrouterKey.trim();
     if (!effectiveKey) {
-      setError("AI API key is required. Add it in Settings.");
+      setError("AI API key is required. Enter it in the Pipeline Configuration above.");
       return;
     }
     if (!project.repo_url) {
@@ -646,8 +645,7 @@ function ScanPage() {
             </div>
             <p className="font-mono text-[10px] text-subtle/60 flex items-center gap-1.5">
               <AlertTriangle className="size-3" />
-              Keys are used only in your browser and never stored server-side (unless you save them
-              in Settings).
+              Keys are used only in your browser and never stored server-side.
             </p>
           </div>
         )}
@@ -680,14 +678,15 @@ function ScanPage() {
               <p className="font-semibold text-amber-200">Rate Limit / Model Quota Exceeded</p>
               <p className="mt-1 text-amber-300/90 leading-relaxed">
                 This scan reached rate or quota limits across AI candidate models.{" "}
-                {quotaExceededCount} finding operations were skipped. Add a Gemini API key in
-                Settings to remove rate limits, then re-run the scan.
+                {quotaExceededCount} finding operations were skipped. Add a valid AI API key in the
+                Pipeline Configuration above, then re-run the scan.
               </p>
               <Link
-                to="/settings"
+                to="/scan/$projectId"
+                params={{ projectId }}
                 className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200 hover:bg-amber-500/20 transition-colors"
               >
-                Go to Settings → configure Gemini key
+                Scroll up → update AI API key and re-run
               </Link>
             </div>
           </div>
