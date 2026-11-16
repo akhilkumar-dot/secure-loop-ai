@@ -54,7 +54,11 @@ function ScanPage() {
   const [scanning, setScanning] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [aiApiKey, setAiApiKey] = useState<string>("");
+  const [aiApiKey, setAiApiKey] = useState<string>(() => {
+    // Restore key from sessionStorage so users don't re-type it on every navigation
+    // sessionStorage is cleared when the tab closes — never sent to any server.
+    return sessionStorage.getItem("sl_ai_key") ?? "";
+  });
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
@@ -634,10 +638,33 @@ function ScanPage() {
                 <input
                   type="password"
                   value={aiApiKey}
-                  onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder="AQ.…, sk-…, or sk-or-…"
+                  onChange={(e) => {
+                    setAiApiKey(e.target.value);
+                    if (e.target.value) {
+                      sessionStorage.setItem("sl_ai_key", e.target.value);
+                    } else {
+                      sessionStorage.removeItem("sl_ai_key");
+                    }
+                  }}
+                  placeholder="AQ.…, AIzaSy…, sk-or-…, or sk-proj-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
+                {aiApiKey ? (
+                  <p className="mt-1 font-mono text-[10px] text-success/70">✓ key remembered for this session</p>
+                ) : (
+                  <p className="mt-1 font-mono text-[10px] text-danger/70">
+                    ✗ required — paste your{" "}
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-accent/70 hover:text-accent"
+                    >
+                      Gemini API key
+                    </a>{" "}
+                    above
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
@@ -654,7 +681,7 @@ function ScanPage() {
             </div>
             <p className="font-mono text-[10px] text-subtle/60 flex items-center gap-1.5">
               <AlertTriangle className="size-3" />
-              Keys are used only in your browser and never stored server-side.
+              Keys stay in your browser only — never sent to our servers. The key is remembered for this tab session.
             </p>
           </div>
         )}

@@ -211,7 +211,7 @@ export async function analyzeCodeForVulnerabilities(
   files: Array<{ path: string; content: string }>,
   apiKeyOverride?: string,
 ): Promise<GeminiFinding[]> {
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const fileBlocks = files.map((f) => safeCodeBlock(f.content.slice(0, 4000), f.path)).join("\n\n");
 
@@ -263,7 +263,7 @@ export async function generateExplanation(
     return explanationCache.get(cacheKey)!;
   }
 
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
@@ -369,7 +369,7 @@ export async function generatePatch(
   fullFileContent?: string,
   apiKeyOverride?: string,
 ): Promise<GeminiPatch> {
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
@@ -529,7 +529,7 @@ export async function validatePatch(
     // Optional LLM commentary (non-binding)
     let llm_review: string | undefined;
     try {
-      const provider = getProvider(apiKeyOverride);
+      const provider = getProvider(apiKeyOverride ?? "");
       const originalCode = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
       const reviewPrompt = `You are reviewing a security patch. Provide a brief 1-2 sentence human-readable comment on the quality of this fix. Do NOT give a verdict — the deterministic analysis already determined the outcome.
 
@@ -575,7 +575,7 @@ Return ONLY valid JSON: {"review":"your brief comment here"}`;
   // ── LLM-heuristic finding: use LLM opinion (labeled clearly) ────────────
   logs.push("ℹ validation_method: llm-opinion (source is llm-heuristic)");
   try {
-    const provider = getProvider(apiKeyOverride);
+    const provider = getProvider(apiKeyOverride ?? "");
     const originalCode = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
     const prompt = `You are a security code reviewer. Does this patch correctly fix the vulnerability?

@@ -111,6 +111,7 @@ function SettingsPage() {
             </Field>
           </Section>
 
+          {/* AI API Key */}
           {/* GitHub */}
           <Section title="github integration">
             <p className="mb-3 font-mono text-[11px] text-subtle leading-relaxed">

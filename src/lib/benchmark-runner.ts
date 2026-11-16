@@ -628,7 +628,7 @@ export function runBenchmark(
     const sEnd = Date.now();
     const isManualFP = manualFalsePositives[sample.id] ?? false;
 
-    sampleResults.push({
+    const result: SampleResult = {
       sampleId: sample.id,
       name: sample.name,
       vulnClass: sample.vulnClass,
@@ -642,8 +642,9 @@ export function runBenchmark(
       patchValid,
       runtimeMs: Math.max(1, sEnd - sStart),
       manualFalsePositive: isManualFP,
-      error,
-    });
+    };
+    if (error !== null && error !== undefined) result.error = error;
+    sampleResults.push(result);
   }
 
   const totalRuntimeMs = Date.now() - startTime;

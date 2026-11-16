@@ -105,7 +105,7 @@ export async function analyzeCodeForVulnerabilities(
   files: Array<{ path: string; content: string }>,
   apiKeyOverride?: string,
 ): Promise<GeminiFinding[]> {
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const fileBlocks = files.map((f) => `--- FILE: ${f.path} ---\n${f.content}`).join("\n\n");
 
@@ -169,7 +169,7 @@ export async function generateExplanation(
     return explanationCache.get(cacheKey)!;
   }
 
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
@@ -255,7 +255,7 @@ export async function generatePatch(
   fullFileContent?: string,
   apiKeyOverride?: string,
 ): Promise<GeminiPatch> {
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
@@ -321,7 +321,7 @@ export async function validatePatch(
   patchDiff: string,
   apiKeyOverride?: string,
 ): Promise<GeminiValidation> {
-  const provider = getProvider(apiKeyOverride);
+  const provider = getProvider(apiKeyOverride ?? "");
 
   const originalCode = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
