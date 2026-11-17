@@ -12,7 +12,11 @@
  *   - getUnlockedTiers edge cases
  */
 import { describe, it, expect } from "vitest";
-import { findRecurringMisconceptions, type QuizAttempt } from "../misconception";
+import {
+  findRecurringMisconceptions,
+  isMisconceptionResolved,
+  type QuizAttempt,
+} from "../misconception";
 import { getUnlockedTiers } from "../quiz-bank";
 
 // ---------------------------------------------------------------------------
@@ -191,6 +195,136 @@ describe("findRecurringMisconceptions", () => {
     ];
     expect(findRecurringMisconceptions(attempts, LABELS)).toEqual([]);
   });
+
+  it("does not flag when misconception appears only 2 of last 4 attempts", () => {
+    const attempts = [
+      attempt({ misconception_id: "sqli_encrypt", correct: false }, 0),
+      attempt({ misconception_id: "sqli_encrypt", correct: false }, 1),
+      attempt({ misconception_id: "sqli_strip_chars", correct: false }, 2),
+      attempt({ misconception_id: null, correct: true }, 3),
+    ];
+    expect(findRecurringMisconceptions(attempts, LABELS)).toEqual([]);
+  });
+
+  it("does not flag when different misconceptions are interleaved without reaching 3", () => {
+    const attempts = [
+      attempt({ misconception_id: "sqli_encrypt", correct: false }, 0),
+      attempt({ misconception_id: "sqli_strip_chars", correct: false }, 1),
+      attempt({ misconception_id: "sqli_readonly_tx", correct: false }, 2),
+      attempt({ misconception_id: "sqli_encrypt", correct: false }, 3),
+    ];
+    expect(findRecurringMisconceptions(attempts, LABELS)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Misconception Resolution Tests
+// ---------------------------------------------------------------------------
+
+describe("isMisconceptionResolved", () => {
+  const FLAGGED_TIME = "2026-01-01T10:00:00Z";
+
+  it("returns false if fewer than 2 attempts occurred after the flag", () => {
+    const attempts = [
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T10:05:00Z",
+        },
+        1,
+      ),
+    ];
+    expect(isMisconceptionResolved(FLAGGED_TIME, attempts, "sqli_encrypt")).toBe(false);
+  });
+
+  it("returns false if attempts occurred before the flag", () => {
+    const attempts = [
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T09:00:00Z",
+        },
+        1,
+      ),
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T09:30:00Z",
+        },
+        2,
+      ),
+    ];
+    expect(isMisconceptionResolved(FLAGGED_TIME, attempts, "sqli_encrypt")).toBe(false);
+  });
+
+  it("returns false if any of the next 2 attempts is incorrect", () => {
+    const attempts = [
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T10:05:00Z",
+        },
+        1,
+      ),
+      attempt(
+        {
+          misconception_id: "sqli_strip_chars",
+          correct: false,
+          answered_at: "2026-01-01T10:10:00Z",
+        },
+        2,
+      ),
+    ];
+    expect(isMisconceptionResolved(FLAGGED_TIME, attempts, "sqli_encrypt")).toBe(false);
+  });
+
+  it("returns false if the same misconception is repeated in subsequent attempts", () => {
+    const attempts = [
+      attempt(
+        {
+          misconception_id: "sqli_encrypt",
+          correct: false,
+          answered_at: "2026-01-01T10:05:00Z",
+        },
+        1,
+      ),
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T10:10:00Z",
+        },
+        2,
+      ),
+    ];
+    expect(isMisconceptionResolved(FLAGGED_TIME, attempts, "sqli_encrypt")).toBe(false);
+  });
+
+  it("returns true when user achieves 2 consecutive correct answers after the flag", () => {
+    const attempts = [
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T10:05:00Z",
+        },
+        1,
+      ),
+      attempt(
+        {
+          misconception_id: null,
+          correct: true,
+          answered_at: "2026-01-01T10:10:00Z",
+        },
+        2,
+      ),
+    ];
+    expect(isMisconceptionResolved(FLAGGED_TIME, attempts, "sqli_encrypt")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -278,4 +412,3 @@ describe("getUnlockedTiers", () => {
     expect(unlocked.has("medium")).toBe(true);
   });
 });
-

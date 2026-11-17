@@ -23,7 +23,7 @@ export interface RecurringMisconception {
   misconceptionLabel: string;
   vulnClass: string;
   supportingAttemptIds: string[]; // IDs of education_checks rows that triggered it
-  occurrences: number;            // how many of last 4 triggered it
+  occurrences: number; // how many of last 4 triggered it
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,8 @@ export const MISCONCEPTION_LABELS: Record<string, string> = {
   csrf_post_requires_interaction: "Believes POST requests require explicit user interaction",
   csrf_token_client_only: "Adds CSRF tokens to forms but does not verify them server-side",
   csrf_hidden_field_safe: "Believes hidden fields are inaccessible to cross-origin pages",
-  csrf_token_per_request: "Confuses per-session tokens with per-request token rotation requirements",
+  csrf_token_per_request:
+    "Confuses per-session tokens with per-request token rotation requirements",
   csrf_samesite_mobile: "Believes SameSite is unsupported on mobile browsers",
   csrf_token_encrypted: "Confuses CSRF token unpredictability with encryption",
   csrf_samesite_http2: "Believes SameSite requires HTTP/2",
@@ -121,7 +122,8 @@ export const MISCONCEPTION_LABELS: Record<string, string> = {
   deser_limited_to_java_python: "Believes deserialization risk is limited to Python and Java",
   deser_reflection_required: "Believes deserialization risk requires language-level reflection",
   deser_requires_admin: "Believes insecure deserialization requires elevated process privileges",
-  deser_trusted_source: "Assumes data from internal/trusted sources is safe to deserialize directly",
+  deser_trusted_source:
+    "Assumes data from internal/trusted sources is safe to deserialize directly",
   deser_hmac_sufficient: "Believes HMAC signing fully prevents deserialization attacks",
   deser_pickle_python2: "Believes pickle deserialization is only dangerous in Python 2",
   deser_gadget_post_exploit: "Confuses gadget chains with post-exploitation API abuse",
@@ -129,10 +131,12 @@ export const MISCONCEPTION_LABELS: Record<string, string> = {
   deser_gadget_hardware: "Confuses software gadget chains with hardware attack tools",
   deser_validate_after: "Believes validating after deserialization is sufficient",
   deser_type_check_sufficient: "Believes type checking after deserialization prevents the exploit",
-  deser_validation_stops_gadgets: "Believes post-deserialization validation can interrupt gadget chain execution",
+  deser_validation_stops_gadgets:
+    "Believes post-deserialization validation can interrupt gadget chain execution",
   deser_signature_sufficient: "Believes payload signing fully prevents deserialization attacks",
   deser_hmac_unbreakable: "Overestimates HMAC's ability to protect against deserialization attacks",
-  deser_pickle_ignores_hmac: "Misunderstands the relationship between HMAC checking and deserialization",
+  deser_pickle_ignores_hmac:
+    "Misunderstands the relationship between HMAC checking and deserialization",
   deser_catch_exceptions: "Believes exception handling prevents deserialization gadget exploits",
   deser_encrypt_stream: "Believes encrypting the serialized stream prevents gadget chain attacks",
   deser_security_manager: "Relies on SecurityManager which is deprecated and was bypassable",
@@ -189,8 +193,7 @@ export function findRecurringMisconceptions(
 
       results.push({
         misconceptionId,
-        misconceptionLabel:
-          misconceptionLabels[misconceptionId] ?? misconceptionId,
+        misconceptionLabel: misconceptionLabels[misconceptionId] ?? misconceptionId,
         vulnClass,
         supportingAttemptIds: attemptIds,
         occurrences: attemptIds.length,
@@ -199,6 +202,33 @@ export function findRecurringMisconceptions(
   }
 
   return results;
+}
+
+/**
+ * Evaluates whether an active recurring misconception should be marked resolved.
+ * Rule: after the misconception was flagged, the user gets 2 consecutive correct
+ * answers on that vulnerability class without triggering the misconception.
+ *
+ * @param flaggedAt - ISO timestamp when the recurring misconception was flagged
+ * @param subsequentAttempts - All attempts in the same vuln class sorted ascending by answered_at
+ * @param misconceptionId - The ID of the misconception to check
+ */
+export function isMisconceptionResolved(
+  flaggedAt: string,
+  subsequentAttempts: QuizAttempt[],
+  misconceptionId: string,
+): boolean {
+  const afterFlag = subsequentAttempts.filter(
+    (a) => new Date(a.answered_at).getTime() > new Date(flaggedAt).getTime(),
+  );
+  if (afterFlag.length < 2) return false;
+
+  // The first 2 attempts after the flag must both be correct and free of this misconception
+  const next2 = afterFlag.slice(0, 2);
+  const allCorrect = next2.every((a) => a.correct);
+  const noRecurrence = next2.every((a) => a.misconception_id !== misconceptionId);
+
+  return allCorrect && noRecurrence;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,23 +270,24 @@ export async function detectAndSaveRecurringMisconceptions(
 
   const detected = findRecurringMisconceptions(attempts, MISCONCEPTION_LABELS);
 
+  // Check and resolve previously active misconceptions if the user answered correctly
+  await checkAndResolveMisconceptions(userId, vulnClass);
+
   // Persist any newly detected misconceptions (upsert by user_id + misconception_id).
   for (const item of detected) {
-    const { error: upsertError } = await supabase
-      .from("recurring_misconceptions")
-      .upsert(
-        {
-          user_id: userId,
-          vuln_class: item.vulnClass,
-          misconception_id: item.misconceptionId,
-          misconception_label: item.misconceptionLabel,
-          supporting_attempt_ids: item.supportingAttemptIds,
-          occurrences: item.occurrences,
-          flagged_at: new Date().toISOString(),
-          resolved_at: null,
-        },
-        { onConflict: "user_id,misconception_id" },
-      );
+    const { error: upsertError } = await supabase.from("recurring_misconceptions").upsert(
+      {
+        user_id: userId,
+        vuln_class: item.vulnClass,
+        misconception_id: item.misconceptionId,
+        misconception_label: item.misconceptionLabel,
+        supporting_attempt_ids: item.supportingAttemptIds,
+        occurrences: item.occurrences,
+        flagged_at: new Date().toISOString(),
+        resolved_at: null,
+      },
+      { onConflict: "user_id,misconception_id" },
+    );
 
     if (upsertError) {
       console.error("detectAndSaveRecurringMisconceptions: upsert error", upsertError);
@@ -267,12 +298,66 @@ export async function detectAndSaveRecurringMisconceptions(
 }
 
 /**
+ * Checks all active recurring misconceptions for a user and vuln class.
+ * If 2 subsequent correct answers are found, marks resolved_at = now() and keeps history.
+ */
+export async function checkAndResolveMisconceptions(
+  userId: string,
+  vulnClass: string,
+): Promise<string[]> {
+  const { data: activeRows, error: activeErr } = await supabase
+    .from("recurring_misconceptions")
+    .select("id, misconception_id, flagged_at")
+    .eq("user_id", userId)
+    .eq("vuln_class", vulnClass)
+    .is("resolved_at", null);
+
+  if (activeErr || !activeRows || activeRows.length === 0) {
+    return [];
+  }
+
+  const { data: rows, error: rowsErr } = await supabase
+    .from("education_checks")
+    .select("id, vuln_class, tier, question_id, misconception_id, correct, answered_at")
+    .eq("user_id", userId)
+    .eq("vuln_class", vulnClass)
+    .order("answered_at", { ascending: true });
+
+  if (rowsErr || !rows) return [];
+
+  const attempts: QuizAttempt[] = rows.map((r) => ({
+    id: r.id as string,
+    vuln_class: r.vuln_class as string,
+    tier: r.tier as string,
+    question_id: r.question_id as string,
+    misconception_id: r.misconception_id as string | null,
+    correct: r.correct as boolean,
+    answered_at: r.answered_at as string,
+  }));
+
+  const resolvedIds: string[] = [];
+  for (const item of activeRows) {
+    if (isMisconceptionResolved(item.flagged_at, attempts, item.misconception_id)) {
+      const now = new Date().toISOString();
+      const { error: updateErr } = await supabase
+        .from("recurring_misconceptions")
+        .update({ resolved_at: now })
+        .eq("id", item.id);
+
+      if (!updateErr) {
+        resolvedIds.push(item.misconception_id);
+      }
+    }
+  }
+
+  return resolvedIds;
+}
+
+/**
  * Fetch existing, unresolved recurring misconceptions for a user (for
  * dashboard display). Returns rows where resolved_at IS NULL.
  */
-export async function getRecurringMisconceptions(
-  userId: string,
-): Promise<
+export async function getRecurringMisconceptions(userId: string): Promise<
   Array<{
     id: string;
     vuln_class: string;

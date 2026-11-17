@@ -35,7 +35,10 @@ describe("computeNextMasteryState", () => {
       expect(result.correct_count).toBe(1);
       // initial interval = 1; 1 * 2.5 = 2.5 → rounds to 3
       expect(result.interval_days).toBe(3);
-      expect(result.ease_factor).toBeCloseTo(SM2_DEFAULTS.EASE_FACTOR_INITIAL + SM2_DEFAULTS.EASE_FACTOR_DELTA_RIGHT, 5);
+      expect(result.ease_factor).toBeCloseTo(
+        SM2_DEFAULTS.EASE_FACTOR_INITIAL + SM2_DEFAULTS.EASE_FACTOR_DELTA_RIGHT,
+        5,
+      );
     });
 
     it("wrong first attempt resets interval to 1 day", () => {
@@ -142,29 +145,33 @@ describe("computeNextMasteryState", () => {
 });
 
 describe("getMasteryLevel", () => {
-  it("returns 'weak' when no attempts", () => {
-    expect(getMasteryLevel(0, 0, "easy")).toBe("weak");
+  it("returns 'new' when no attempts (honest new-user state)", () => {
+    expect(getMasteryLevel(0, 0, "easy")).toBe("new");
   });
 
-  it("returns 'mastered' for hard tier with ≥75% accuracy", () => {
-    expect(getMasteryLevel(8, 6, "hard")).toBe("mastered"); // 75%
-    expect(getMasteryLevel(10, 8, "hard")).toBe("mastered"); // 80%
+  it("returns 'mastered' for hard tier with >=75% accuracy, >=2.3 ease factor, and >=4 attempts", () => {
+    expect(getMasteryLevel(8, 6, "hard", 2.5)).toBe("mastered"); // 75%
+    expect(getMasteryLevel(10, 8, "hard", 2.6)).toBe("mastered"); // 80%
   });
 
   it("returns 'learning' for hard tier with <75% accuracy", () => {
-    expect(getMasteryLevel(10, 7, "hard")).toBe("learning"); // 70%
+    expect(getMasteryLevel(10, 7, "hard", 2.5)).toBe("learning"); // 70%
   });
 
-  it("returns 'learning' for medium tier regardless of accuracy ≥60%", () => {
-    expect(getMasteryLevel(5, 3, "medium")).toBe("learning"); // 60%
+  it("returns 'learning' for medium tier with good accuracy", () => {
+    expect(getMasteryLevel(5, 4, "medium", 2.5)).toBe("learning"); // 80%
   });
 
-  it("returns 'learning' for easy tier with ≥60% accuracy", () => {
-    expect(getMasteryLevel(5, 3, "easy")).toBe("learning"); // 60%
+  it("returns 'learning' for easy tier with >=60% accuracy", () => {
+    expect(getMasteryLevel(5, 3, "easy", 2.5)).toBe("learning"); // 60%
   });
 
-  it("returns 'weak' for easy tier with <60% accuracy", () => {
-    expect(getMasteryLevel(10, 5, "easy")).toBe("weak"); // 50%
+  it("returns 'reviewing' when review is due", () => {
+    expect(getMasteryLevel(5, 4, "easy", 2.5, true)).toBe("reviewing");
+  });
+
+  it("returns 'reviewing' for low accuracy (<60%) after at least 3 attempts", () => {
+    expect(getMasteryLevel(5, 2, "easy", 2.0)).toBe("reviewing"); // 40%
   });
 });
 
@@ -189,4 +196,3 @@ describe("daysUntilReview", () => {
     expect(daysUntilReview(past.toISOString(), NOW)).toBe(-3);
   });
 });
-

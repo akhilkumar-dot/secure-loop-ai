@@ -24,16 +24,21 @@ export class GeminiProviderExhaustedError extends Error {
 export type StageName = "explanation_generation" | "patch_generation" | "default";
 
 function resolveModels(): string[] {
-  const primary =
-    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_PRIMARY"]) || "gemini-2.5-flash";
-  const fallbacksEnv =
+  const envPrimary =
+    (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_PRIMARY"]) ||
+    (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_GEMINI_MODEL_PRIMARY"]);
+  const primary = envPrimary || "gemini-1.5-flash";
+
+  const envFallbacks =
     (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_FALLBACKS"]) ||
-    "gemini-1.5-flash,gemini-1.5-flash-8b";
+    (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_GEMINI_MODEL_FALLBACKS"]);
+  const fallbacksEnv = envFallbacks || "gemini-2.0-flash,gemini-1.5-flash-8b";
+
   return [
     primary,
     ...fallbacksEnv
       .split(",")
-      .map((m) => m.trim())
+      .map((m: string) => m.trim())
       .filter(Boolean),
   ];
 }

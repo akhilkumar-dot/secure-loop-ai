@@ -82,6 +82,8 @@ export interface DbExplanation {
   why_it_happened?: string;
   owasp_category?: string;
   how_fix_works?: string;
+  technical_explanation?: string;
+  simplified_explanation?: string;
   model?: string;
   confidence?: "high" | "medium" | "low" | "not_applicable";
   is_applicable?: boolean;

@@ -14,6 +14,8 @@ export default defineConfig({
       "src/**/__tests__/quiz-bank.test.ts",
       "src/**/__tests__/spaced-repetition.test.ts",
       "src/**/__tests__/benchmark.test.ts",
+      "src/**/__tests__/education-integrity.test.ts",
+      "src/**/__tests__/tier-progression.test.ts",
     ],
     globals: true,
   },

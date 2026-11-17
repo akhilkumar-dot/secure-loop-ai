@@ -20,7 +20,7 @@ import type { Tier, VulnClass } from "@/lib/quiz-bank";
 export interface TierStatus {
   unlockedTiers: Tier[];
   currentBestTier: Tier;
-  easyPassRate: number | null;    // 0-1; null if < outOf attempts
+  easyPassRate: number | null; // 0-1; null if < outOf attempts
   mediumPassRate: number | null;
 }
 
@@ -28,10 +28,7 @@ export interface TierStatus {
  * Fetch the user's attempt history for a vuln class and compute which tiers
  * are unlocked.  Returns the unlocked set + a human-readable status object.
  */
-export async function getTierStatus(
-  userId: string,
-  vulnClass: VulnClass,
-): Promise<TierStatus> {
+export async function getTierStatus(userId: string, vulnClass: VulnClass): Promise<TierStatus> {
   const { data, error } = await supabase
     .from("education_checks")
     .select("tier, correct, answered_at")
@@ -89,6 +86,7 @@ export async function getTierStatus(
 /**
  * Returns true if the user is allowed to attempt the requested tier.
  * This is the server-side gate — always call this before accepting a quiz answer.
+ * Verifies both via backend RPC (when available) and direct DB history checks.
  */
 export async function checkTierAllowed(
   userId: string,
@@ -96,7 +94,21 @@ export async function checkTierAllowed(
   requestedTier: Tier,
 ): Promise<boolean> {
   if (requestedTier === "easy") return true; // always allowed
+
+  // 1. Try server RPC gate first
+  try {
+    const { data: rpcAllowed, error: rpcErr } = await supabase.rpc("rpc_check_tier_unlocked", {
+      p_vuln_class: vulnClass,
+      p_tier: requestedTier,
+    });
+    if (!rpcErr && typeof rpcAllowed === "boolean") {
+      return rpcAllowed;
+    }
+  } catch {
+    // Fall back to database query if RPC is unavailable
+  }
+
+  // 2. Query attempts and evaluate logic
   const { unlockedTiers } = await getTierStatus(userId, vulnClass);
   return unlockedTiers.includes(requestedTier);
 }
-

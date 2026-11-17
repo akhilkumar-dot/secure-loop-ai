@@ -105,9 +105,7 @@ export async function updateMasteryAfterAnswer(
 /**
  * Fetch mastery profiles that are due for review (next_review_at ≤ now).
  */
-export async function getDueForReview(
-  userId: string,
-): Promise<MasteryProfileRow[]> {
+export async function getDueForReview(userId: string): Promise<MasteryProfileRow[]> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("mastery_profiles")
@@ -122,4 +120,3 @@ export async function getDueForReview(
   }
   return (data ?? []) as MasteryProfileRow[];
 }
-

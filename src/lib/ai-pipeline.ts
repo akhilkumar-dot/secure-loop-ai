@@ -133,6 +133,8 @@ export interface GeminiExplanation {
   why_it_happened: string;
   owasp_category: string;
   how_fix_works: string;
+  technical_explanation?: string | undefined;
+  simplified_explanation?: string | undefined;
   model?: string | undefined;
   confidence?: "high" | "medium" | "low" | "not_applicable" | undefined;
   is_applicable?: boolean | undefined;
@@ -191,6 +193,8 @@ const ExplanationSchema = z.object({
   why_it_happened: z.string(),
   owasp_category: z.string(),
   how_fix_works: z.string(),
+  technical_explanation: z.string().optional(),
+  simplified_explanation: z.string().optional(),
 });
 
 const PatchSchema = z.object({
@@ -277,7 +281,7 @@ Finding:
 ${safeCodeBlock(codeContext, "vulnerable code")}
 
 Evaluate whether the code actually contains this vulnerability. Return ONLY valid JSON:
-{"is_applicable":boolean,"confidence":"high"|"medium"|"low"|"not_applicable","what_it_is":"2-3 sentences","why_it_happened":"2-3 sentences","owasp_category":"e.g. A03:2021 — Injection","how_fix_works":"2-3 sentences"}`;
+{"is_applicable":boolean,"confidence":"high"|"medium"|"low"|"not_applicable","what_it_is":"2-3 sentences overview","why_it_happened":"2-3 sentences root cause","owasp_category":"e.g. A03:2021 — Injection","how_fix_works":"2-3 sentences remediation","technical_explanation":"Detailed AST, protocol, and code execution analysis for senior developers","simplified_explanation":"Accessible plain-English explanation with real-world intuition for junior developers"}`;
 
   try {
     const res = await provider.generateChatCompletion(
@@ -293,7 +297,19 @@ Evaluate whether the code actually contains this vulnerability. Return ONLY vali
       );
       return r.content;
     });
-    const result: GeminiExplanation = { ...parsed, model: res.modelUsed };
+    const technical =
+      parsed.technical_explanation ||
+      `${parsed.what_it_is}\n\nTechnical Cause: ${parsed.why_it_happened}\n\nRemediation Mechanics: ${parsed.how_fix_works}`;
+    const simplified =
+      parsed.simplified_explanation ||
+      `${parsed.what_it_is}\n\nIn Plain Terms: ${parsed.how_fix_works}`;
+
+    const result: GeminiExplanation = {
+      ...parsed,
+      technical_explanation: technical,
+      simplified_explanation: simplified,
+      model: res.modelUsed,
+    };
     if (parsed.is_applicable === false || parsed.confidence === "not_applicable") {
       result.error_type = "false_positive";
     }

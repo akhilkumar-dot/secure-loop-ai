@@ -18,13 +18,17 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase, type DbProject, type DbScanRun, type DbRecurringMisconception } from "@/lib/supabase";
+import {
+  supabase,
+  type DbProject,
+  type DbScanRun,
+  type DbRecurringMisconception,
+} from "@/lib/supabase";
 import { fetchUserGitHubRepos, type GitHubRepoItem } from "@/lib/github";
 import { Logo, ScoreBadge } from "@/components/chrome";
 import { getRecurringMisconceptions } from "@/lib/misconception";
 import { getAllMasteryProfiles, type MasteryProfileRow } from "@/lib/mastery-db";
 import { daysUntilReview, getMasteryLevel } from "@/lib/spaced-repetition";
-import { seedDemoData } from "@/lib/demo-seeder";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -65,10 +69,11 @@ function DashboardPage() {
   const [activeGithubToken, setActiveGithubToken] = useState<string | null>(null);
 
   // Misconception diagnosis state
-  const [recurringMisconceptions, setRecurringMisconceptions] = useState<DbRecurringMisconception[]>([]);
+  const [recurringMisconceptions, setRecurringMisconceptions] = useState<
+    DbRecurringMisconception[]
+  >([]);
   // Mastery and Spaced Repetition state
   const [masteryProfiles, setMasteryProfiles] = useState<MasteryProfileRow[]>([]);
-  const [seedingDemo, setSeedingDemo] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -119,23 +124,6 @@ function DashboardPage() {
     if (!user) return;
     const profiles = await getAllMasteryProfiles(user.id);
     setMasteryProfiles(profiles);
-  }
-
-  async function handleLoadDemo() {
-    if (!user) return;
-    setSeedingDemo(true);
-    try {
-      await seedDemoData(user.id);
-      await Promise.all([
-        loadProjects(),
-        loadRecurringMisconceptions(),
-        loadMasteryProfiles(),
-      ]);
-    } catch (e: any) {
-      console.error("Failed to seed demo data:", e);
-    } finally {
-      setSeedingDemo(false);
-    }
   }
 
   async function loadProjects() {
@@ -327,15 +315,6 @@ function DashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleLoadDemo}
-              disabled={seedingDemo}
-              title="Preload realistic OWASP WebGoat audit, findings, misconception diagnosis, and due reviews"
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground disabled:opacity-50"
-            >
-              <Sparkles className="size-3 text-accent" />
-              {seedingDemo ? "loading demo…" : "load demo data"}
-            </button>
-            <button
               onClick={loadProjects}
               className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
             >
@@ -368,17 +347,15 @@ function DashboardPage() {
                   Recurring misconceptions detected
                 </h2>
                 <p className="mt-1 font-mono text-[11px] text-subtle">
-                  These patterns appeared in 3 of your last 4 quiz attempts for the same vulnerability class.
+                  These patterns appeared in 3 of your last 4 quiz attempts for the same
+                  vulnerability class.
                 </p>
               </div>
             </div>
 
             <div className="space-y-3">
               {recurringMisconceptions.map((m) => (
-                <div
-                  key={m.id}
-                  className="rounded-lg border border-border bg-elevated p-4"
-                >
+                <div key={m.id} className="rounded-lg border border-border bg-elevated p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <p className="font-mono text-xs text-foreground leading-relaxed">
@@ -402,7 +379,9 @@ function DashboardPage() {
                         <span>
                           triggered in{" "}
                           <span className="text-warning font-semibold">
-                            {(m.supporting_attempt_ids as string[] | undefined)?.length ?? m.occurrences} of your last 4
+                            {(m.supporting_attempt_ids as string[] | undefined)?.length ??
+                              m.occurrences}{" "}
+                            of your last 4
                           </span>{" "}
                           answers for this class
                         </span>
@@ -411,12 +390,21 @@ function DashboardPage() {
                         </span>
                       </div>
                     </div>
-                    <Link
-                      to="/score"
-                      className="shrink-0 font-mono text-[10px] text-accent hover:underline"
-                    >
-                      view score →
-                    </Link>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <Link
+                        to="/learn"
+                        search={{ class: m.vuln_class as any }}
+                        className="pill-hover rounded-full border border-accent/40 bg-accent/15 px-3 py-1 font-mono text-[10px] text-accent hover:bg-accent/25 transition-colors"
+                      >
+                        practice this →
+                      </Link>
+                      <Link
+                        to="/score"
+                        className="font-mono text-[9px] text-subtle hover:text-foreground hover:underline"
+                      >
+                        view score
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -467,17 +455,21 @@ function DashboardPage() {
               const attempts = prof?.attempts_count ?? 0;
               const correct = prof?.correct_count ?? 0;
               const tier = prof?.tier_reached ?? "easy";
-              const level = getMasteryLevel(attempts, correct, tier);
               const days = prof?.next_review_at ? daysUntilReview(prof.next_review_at) : null;
-              const isDue = days === null || days <= 0;
+              const isDue = attempts > 0 && (days === null || days <= 0);
+              const level = getMasteryLevel(
+                attempts,
+                correct,
+                tier,
+                prof?.ease_factor ?? 2.5,
+                isDue,
+              );
 
               return (
                 <div
                   key={cls.key}
                   className={`rounded-lg border p-3.5 flex flex-col justify-between ${
-                    isDue
-                      ? "border-warning/40 bg-warning/5"
-                      : "border-border bg-background"
+                    isDue ? "border-warning/40 bg-warning/5" : "border-border bg-background"
                   }`}
                 >
                   <div>
@@ -491,7 +483,9 @@ function DashboardPage() {
                             ? "border-success/40 text-success bg-success/10"
                             : level === "learning"
                               ? "border-warning/40 text-warning bg-warning/10"
-                              : "border-border text-subtle"
+                              : level === "reviewing"
+                                ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
+                                : "border-border text-subtle"
                         }`}
                       >
                         {level}
@@ -500,18 +494,25 @@ function DashboardPage() {
 
                     <div className="flex items-center justify-between text-[11px] font-mono text-subtle mb-3">
                       <span>tier: {tier}</span>
-                      {attempts > 0 && <span>acc: {Math.round((correct / attempts) * 100)}%</span>}
+                      {attempts > 0 ? (
+                        <span>acc: {Math.round((correct / attempts) * 100)}%</span>
+                      ) : (
+                        <span className="text-subtle/60">0 attempts</span>
+                      )}
                     </div>
 
                     <div className="font-mono text-xs">
-                      {isDue ? (
+                      {attempts === 0 ? (
+                        <span className="text-subtle">Not started yet</span>
+                      ) : isDue ? (
                         <span className="text-warning font-semibold flex items-center gap-1.5">
                           <span className="size-1.5 rounded-full bg-warning animate-pulse" />
                           Due for review
                         </span>
                       ) : (
                         <span className="text-subtle">
-                          Next review in <strong className="text-foreground">{days}</strong> day{days === 1 ? "" : "s"}
+                          Next review in <strong className="text-foreground">{days}</strong> day
+                          {days === 1 ? "" : "s"}
                         </span>
                       )}
                     </div>
@@ -519,6 +520,7 @@ function DashboardPage() {
 
                   <Link
                     to="/learn"
+                    search={{ class: cls.key }}
                     className={`mt-3 flex items-center justify-center gap-1.5 rounded py-1.5 font-mono text-[11px] transition-colors ${
                       isDue
                         ? "bg-warning/15 text-warning hover:bg-warning/25 font-semibold"
@@ -526,7 +528,7 @@ function DashboardPage() {
                     }`}
                   >
                     <Target className="size-3" />
-                    {isDue ? "Review now" : "Practice"}
+                    {attempts === 0 ? "Start easy" : isDue ? "Review now" : "Practice"}
                   </Link>
                 </div>
               );

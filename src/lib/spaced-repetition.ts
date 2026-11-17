@@ -37,11 +37,11 @@ export interface MasteryUpdate {
 export const SM2_DEFAULTS = {
   EASE_FACTOR_INITIAL: 2.5,
   EASE_FACTOR_MIN: 1.3,
-  EASE_FACTOR_DELTA_WRONG: 0.15,  // subtracted on wrong
-  EASE_FACTOR_DELTA_RIGHT: 0.05,  // added on correct (slight boost)
-  INTERVAL_INITIAL: 1,            // days
-  INTERVAL_MAX: 60,               // days cap
-  INTERVAL_WRONG_RESET: 1,        // reset to 1 day on wrong
+  EASE_FACTOR_DELTA_WRONG: 0.15, // subtracted on wrong
+  EASE_FACTOR_DELTA_RIGHT: 0.05, // added on correct (slight boost)
+  INTERVAL_INITIAL: 1, // days
+  INTERVAL_MAX: 60, // days cap
+  INTERVAL_WRONG_RESET: 1, // reset to 1 day on wrong
   RECURRING_MISCONCEPTION_RESET: 1, // reset to 1 day on recurring flag
 } as const;
 
@@ -86,8 +86,7 @@ export function computeNextMasteryState(
 
   // Tier reached is the max tier this user has ever attempted
   const tierOrder: Record<"easy" | "medium" | "hard", number> = { easy: 0, medium: 1, hard: 2 };
-  const newTierReached =
-    tierOrder[tier] > tierOrder[prev.tier_reached] ? tier : prev.tier_reached;
+  const newTierReached = tierOrder[tier] > tierOrder[prev.tier_reached] ? tier : prev.tier_reached;
 
   let newEaseFactor: number;
   let newIntervalDays: number;
@@ -136,20 +135,33 @@ export function computeNextMasteryState(
   };
 }
 
+export type MasteryLevel = "new" | "learning" | "reviewing" | "mastered";
+
 /**
- * Compute mastery level label from accuracy + tier_reached.
- * Used for the per-class progress display.
+ * Compute mastery level label from real attempts, accuracy, tier_reached, and ease_factor.
+ * Explicit thresholds:
+ *  - "new": 0 attempts recorded (honest state for new user)
+ *  - "mastered": hard tier reached with >=75% accuracy, stable ease_factor (>=2.3), and >=4 attempts
+ *  - "reviewing": review is due or accuracy < 60% after >=3 attempts
+ *  - "learning": actively progressing towards mastery
  */
 export function getMasteryLevel(
   attempts: number,
   correct: number,
   tierReached: "easy" | "medium" | "hard",
-): "mastered" | "learning" | "weak" {
-  if (attempts === 0) return "weak";
+  easeFactor = 2.5,
+  isDue = false,
+): MasteryLevel {
+  if (attempts === 0) return "new";
   const accuracy = correct / attempts;
-  if (tierReached === "hard" && accuracy >= 0.75) return "mastered";
-  if (accuracy >= 0.6 || tierReached === "medium") return "learning";
-  return "weak";
+  if (isDue) return "reviewing";
+  if (tierReached === "hard" && accuracy >= 0.75 && easeFactor >= 2.3 && attempts >= 4) {
+    return "mastered";
+  }
+  if (accuracy < 0.6 && attempts >= 3) {
+    return "reviewing";
+  }
+  return "learning";
 }
 
 /**
@@ -162,4 +174,3 @@ export function daysUntilReview(nextReviewAt: string | null, now = new Date()): 
   const diffMs = next.getTime() - now.getTime();
   return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
-

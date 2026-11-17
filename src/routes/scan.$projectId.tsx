@@ -398,6 +398,8 @@ function ScanPage() {
       if (expRow) explanationMap.set(f.id, expRow.id);
       await supabase.from("findings").update({ status: "explained" }).eq("id", f.id);
       addLog(`  ✓ explained: ${f.file_path}:${f.line_start}`, "ok");
+      // Throttle between AI requests to respect free-tier rate limits (15 RPM)
+      await delay(800);
     }
 
     // ── 6. Generate patches ───────────────────────────────────────────────────
@@ -428,6 +430,8 @@ function ScanPage() {
       if (patchRow) patchMap.set(f.id, patchRow.id);
       await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
       addLog(`  ✓ patch generated: ${f.file_path}`, "ok");
+      // Throttle between AI requests to respect free-tier rate limits (15 RPM)
+      await delay(800);
     }
 
     // ── 7. Validate patches ───────────────────────────────────────────────────

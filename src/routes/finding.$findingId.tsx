@@ -8,9 +8,12 @@ import {
   XCircle,
   AlertCircle,
   Lock,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase, type DbFinding, type DbExplanation, type DbPatch } from "@/lib/supabase";
+import { generateExplanation, generatePatch, validatePatch } from "@/lib/ai-pipeline";
 import {
   Logo,
   SeverityBadge,
@@ -28,8 +31,9 @@ import {
   type Tier,
   type TieredQuestion,
 } from "@/lib/quiz-bank";
-import { detectAndSaveRecurringMisconceptions } from "@/lib/misconception";
+import { detectAndSaveRecurringMisconceptions, MISCONCEPTION_LABELS } from "@/lib/misconception";
 import { updateMasteryAfterAnswer } from "@/lib/mastery-db";
+import { checkTierAllowed } from "@/lib/tier-progression";
 
 export const Route = createFileRoute("/finding/$findingId")({
   head: () => ({
@@ -62,6 +66,18 @@ function FindingDetailPage() {
   const [unlockedTiers, setUnlockedTiers] = useState<Set<Tier>>(new Set(["easy"]));
   const [attemptCount, setAttemptCount] = useState(0);
   const [loadingTier, setLoadingTier] = useState(false);
+  const [explanationMode, setExplanationMode] = useState<"technical" | "simplified">("technical");
+
+  // AI on-demand generation state
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenKey, setRegenKey] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("sl_ai_key") ?? "";
+    }
+    return "";
+  });
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -180,6 +196,160 @@ function FindingDetailPage() {
     setLoadingTier(false);
   }
 
+  async function handleRegenerateAi(apiKeyToUse?: string) {
+    if (!finding || !user) return;
+    const key = (
+      apiKeyToUse ||
+      regenKey ||
+      (typeof window !== "undefined" ? sessionStorage.getItem("sl_ai_key") : "") ||
+      ""
+    ).trim();
+    if (!key) {
+      setShowKeyInput(true);
+      return;
+    }
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("sl_ai_key", key);
+    }
+
+    setRegenerating(true);
+    setRegenError(null);
+
+    try {
+      const baseFinding: {
+        file_path: string;
+        vulnerability_class?: string;
+        cwe?: string;
+        raw_message?: string;
+        line_start?: number;
+        code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
+      } = { file_path: finding.file_path };
+      if (finding.vulnerability_class)
+        baseFinding.vulnerability_class = finding.vulnerability_class;
+      if (finding.cwe) baseFinding.cwe = finding.cwe;
+      if (finding.raw_message) baseFinding.raw_message = finding.raw_message;
+      if (finding.line_start) baseFinding.line_start = finding.line_start;
+      if (Array.isArray(finding.code_lines)) baseFinding.code_lines = finding.code_lines as any;
+
+      // 1. Generate explanation
+      const explanation = await generateExplanation(baseFinding, key);
+
+      if (
+        explanation.error_type === "transient_error" &&
+        explanation.owasp_category.includes("Quota")
+      ) {
+        throw new Error(
+          "Gemini rate limit or quota exceeded across models. Please check your API key or wait a moment.",
+        );
+      }
+
+      // Persist explanation
+      let explanationId = finding.explanation?.id;
+      if (explanationId) {
+        await supabase
+          .from("explanations")
+          .update({
+            what_it_is: explanation.what_it_is,
+            why_it_happened: explanation.why_it_happened,
+            owasp_category: explanation.owasp_category,
+            how_fix_works: explanation.how_fix_works,
+            technical_explanation: explanation.technical_explanation,
+            simplified_explanation: explanation.simplified_explanation,
+            model: explanation.model || "gemini-1.5-flash",
+            generated_at: new Date().toISOString(),
+          })
+          .eq("id", explanationId);
+      } else {
+        const { data: newExp } = await supabase
+          .from("explanations")
+          .insert({
+            finding_id: finding.id,
+            what_it_is: explanation.what_it_is,
+            why_it_happened: explanation.why_it_happened,
+            owasp_category: explanation.owasp_category,
+            how_fix_works: explanation.how_fix_works,
+            technical_explanation: explanation.technical_explanation,
+            simplified_explanation: explanation.simplified_explanation,
+            model: explanation.model || "gemini-1.5-flash",
+            generated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (newExp) explanationId = newExp.id;
+      }
+
+      // 2. Synthesize code context for patch
+      let fileContent: string | undefined;
+      if (Array.isArray(finding.code_lines) && finding.code_lines.length > 0) {
+        fileContent = (finding.code_lines as Array<{ n: number; code: string }>)
+          .map((l) => l.code)
+          .join("\n");
+      }
+
+      // 3. Generate patch
+      const patch = await generatePatch(baseFinding, fileContent, key);
+
+      // 4. Validate patch
+      const valFinding: typeof baseFinding & { rule_id?: string; source?: string } = {
+        ...baseFinding,
+      };
+      if (finding.rule_id) valFinding.rule_id = finding.rule_id;
+      valFinding.source = finding.tool === "sast-rules" ? "sast" : "llm-heuristic";
+
+      const validation = await validatePatch(valFinding, patch.diff, fileContent, key);
+
+      // Persist patch
+      if (finding.patch?.id) {
+        await supabase
+          .from("patches")
+          .update({
+            diff: patch.diff,
+            explanation_id: explanationId ?? null,
+            model: "gemini-1.5-flash",
+            validation_diff_applies: validation.diff_applies,
+            validation_vulnerability_gone: validation.vulnerability_gone,
+            validation_syntax_ok: validation.syntax_ok,
+            validation_new_issues: validation.new_issues,
+            validation_method: validation.validation_method,
+            validation_llm_review: validation.llm_review ?? null,
+            validation_verdict: validation.verdict,
+            validation_validated_at: new Date().toISOString(),
+            validation_logs: validation.logs,
+            validation_failed_check: validation.failed_check ?? null,
+          })
+          .eq("id", finding.patch.id);
+      } else {
+        await supabase.from("patches").insert({
+          finding_id: finding.id,
+          diff: patch.diff,
+          explanation_id: explanationId ?? null,
+          model: "gemini-1.5-flash",
+          generated_at: new Date().toISOString(),
+          validation_diff_applies: validation.diff_applies,
+          validation_vulnerability_gone: validation.vulnerability_gone,
+          validation_syntax_ok: validation.syntax_ok,
+          validation_new_issues: validation.new_issues,
+          validation_method: validation.validation_method,
+          validation_llm_review: validation.llm_review ?? null,
+          validation_verdict: validation.verdict,
+          validation_validated_at: new Date().toISOString(),
+          validation_logs: validation.logs,
+          validation_failed_check: validation.failed_check ?? null,
+        });
+      }
+
+      await supabase.from("findings").update({ status: "patched" }).eq("id", finding.id);
+
+      // Reload finding data in place
+      await fetchData();
+    } catch (err: any) {
+      console.error("[finding-regenerate] Error:", err);
+      setRegenError(err?.message || "Failed to generate AI analysis. Check your API key.");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   async function dismissFalsePositive() {
     if (!finding || !user) return;
     setDeciding(true);
@@ -203,22 +373,11 @@ function FindingDetailPage() {
     const misconceptionId = getMisconceptionId(activeQuestion, quizAnswer);
 
     // ── Server-side tier gate ──────────────────────────────────────────────
-    // Re-verify the tier is still unlocked (do not trust client-side state)
-    if (activeTier !== "easy") {
-      const { data: pastAttempts } = await supabase
-        .from("education_checks")
-        .select("tier, correct")
-        .eq("user_id", user.id)
-        .eq("vuln_class", vulnClass)
-        .order("answered_at", { ascending: true });
-
-      const attempts = (pastAttempts ?? []) as Array<{ tier: Tier; correct: boolean }>;
-      const stillUnlocked = getUnlockedTiers(attempts);
-      if (!stillUnlocked.has(activeTier)) {
-        // Tier was revoked between page load and submission — reject silently
-        console.warn("[quiz] Tier no longer unlocked, rejecting submission");
-        return;
-      }
+    // Re-verify the tier is unlocked (enforces server-side progression gate)
+    const isAllowed = await checkTierAllowed(user.id, vulnClass, activeTier);
+    if (!isAllowed) {
+      console.warn("[quiz] Tier is locked for user, rejecting submission");
+      return;
     }
 
     // ── Persist the answer ────────────────────────────────────────────────
@@ -241,13 +400,7 @@ function FindingDetailPage() {
     const recurring = await detectAndSaveRecurringMisconceptions(user.id, vulnClass);
 
     // ── Update Mastery & Spaced Repetition ────────────────────────────────
-    await updateMasteryAfterAnswer(
-      user.id,
-      vulnClass,
-      activeTier,
-      isCorrect,
-      recurring.length > 0,
-    );
+    await updateMasteryAfterAnswer(user.id, vulnClass, activeTier, isCorrect, recurring.length > 0);
 
     setQuizSubmitted(true);
   }
@@ -270,7 +423,12 @@ function FindingDetailPage() {
   const isTransientFailure =
     finding?.explanation?.error_type === "transient_error" ||
     finding?.explanation?.what_it_is?.toLowerCase().includes("could not generate") ||
-    finding?.explanation?.what_it_is?.toLowerCase().includes("failed");
+    finding?.explanation?.what_it_is?.toLowerCase().includes("failed") ||
+    finding?.explanation?.what_it_is?.toLowerCase().includes("rate limit") ||
+    finding?.explanation?.what_it_is?.toLowerCase().includes("quota") ||
+    finding?.explanation?.owasp_category?.toLowerCase().includes("quota") ||
+    finding?.patch?.diff?.includes("failed") ||
+    finding?.patch?.diff?.includes("quota exceeded");
 
   if (loading || loadingData) {
     return (
@@ -337,9 +495,83 @@ function FindingDetailPage() {
 
           {/* Right: Explanation */}
           <div>
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
-              ai explanation
-            </p>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  ai explanation
+                </p>
+                {finding.explanation && !isFalsePositive && !isTransientFailure && (
+                  <div className="inline-flex rounded-lg border border-border bg-background p-0.5 font-mono text-[10px]">
+                    <button
+                      onClick={() => setExplanationMode("technical")}
+                      className={`rounded px-2.5 py-0.5 transition-colors ${
+                        explanationMode === "technical"
+                          ? "bg-accent/20 text-accent font-semibold"
+                          : "text-subtle hover:text-foreground"
+                      }`}
+                    >
+                      technical
+                    </button>
+                    <button
+                      onClick={() => setExplanationMode("simplified")}
+                      className={`rounded px-2.5 py-0.5 transition-colors ${
+                        explanationMode === "simplified"
+                          ? "bg-accent/20 text-accent font-semibold"
+                          : "text-subtle hover:text-foreground"
+                      }`}
+                    >
+                      simplified
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => handleRegenerateAi()}
+                disabled={regenerating}
+                className="pill-hover inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[11px] text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+              >
+                <Sparkles className={`size-3 ${regenerating ? "animate-spin" : ""}`} />
+                {regenerating ? "generating…" : "regenerate with gemini"}
+              </button>
+            </div>
+
+            {regenError && (
+              <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 font-mono text-xs text-danger">
+                {regenError}
+              </div>
+            )}
+
+            {showKeyInput && (
+              <div className="mb-3 rounded-lg border border-border bg-elevated p-3 space-y-2">
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  Enter Gemini API key (AQ.… or AIzaSy…)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={regenKey}
+                    onChange={(e) => {
+                      setRegenKey(e.target.value);
+                      if (typeof window !== "undefined") {
+                        sessionStorage.setItem("sl_ai_key", e.target.value);
+                      }
+                    }}
+                    placeholder="AQ.… or AIzaSy…"
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      setShowKeyInput(false);
+                      handleRegenerateAi(regenKey);
+                    }}
+                    className="pill-hover rounded-lg border border-accent/40 bg-accent/20 px-3 py-1.5 font-mono text-xs text-accent cursor-pointer"
+                  >
+                    run
+                  </button>
+                </div>
+              </div>
+            )}
+
             {isFalsePositive ? (
               <div className="rounded-lg border border-warning/40 bg-warning/10 p-5 font-mono text-xs text-warning space-y-3 break-words [overflow-wrap:anywhere]">
                 <div className="flex items-center gap-2 font-semibold text-sm">
@@ -371,59 +603,107 @@ function FindingDetailPage() {
                 )}
               </div>
             ) : isTransientFailure ? (
-              <div className="rounded-lg border border-danger/40 bg-danger/10 p-5 font-mono text-xs text-danger space-y-3 break-words [overflow-wrap:anywhere]">
-                <div className="flex items-center gap-2 font-semibold text-sm">
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-5 font-mono text-xs text-amber-200 space-y-3 break-words [overflow-wrap:anywhere]">
+                <div className="flex items-center gap-2 font-semibold text-sm text-amber-300">
                   <AlertCircle className="size-4 shrink-0" />
-                  <span>AI Explanation Generation Failed</span>
+                  <span>AI Generation Rate-Limited / Quota Exceeded</span>
                 </div>
                 <p className="text-foreground/90 leading-relaxed break-words [overflow-wrap:anywhere]">
                   {finding.explanation?.why_it_happened ||
-                    "Transient AI service error or rate limit occurred while processing this finding."}
+                    "The Gemini API rate limit was reached during the initial scan. You can generate the explanation and patch for this finding now."}
                 </p>
-                <button
-                  onClick={fetchData}
-                  className="mt-2 inline-flex items-center gap-2 rounded-full border border-danger/40 bg-danger/20 px-4 py-1.5 font-mono text-xs font-medium text-danger hover:bg-danger/30 transition-colors cursor-pointer"
-                >
-                  retry explanation
-                </button>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    onClick={() => handleRegenerateAi()}
+                    disabled={regenerating}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-accent/50 bg-accent/20 px-4 py-2 font-mono text-xs font-medium text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} />
+                    {regenerating ? "generating with gemini…" : "generate with gemini now"}
+                  </button>
+                  <button
+                    onClick={() => setShowKeyInput(!showKeyInput)}
+                    className="font-mono text-[11px] text-subtle hover:text-foreground underline cursor-pointer"
+                  >
+                    {regenKey ? "update api key" : "enter api key"}
+                  </button>
+                </div>
               </div>
             ) : finding.explanation ? (
               <div className="rounded-lg border border-border bg-elevated p-5 space-y-4 font-mono text-xs">
-                <div>
-                  <span className="text-accent">what it is</span>
-                  <p className="mt-1 text-subtle leading-relaxed">
-                    {finding.explanation.what_it_is}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-accent">why it happened</span>
-                  <p className="mt-1 text-subtle leading-relaxed">
-                    {finding.explanation.why_it_happened}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-accent">owasp category</span>
-                  <p className="mt-1 text-foreground">{finding.explanation.owasp_category}</p>
-                </div>
-                <div>
-                  <span className="text-accent">how the fix works</span>
-                  <p className="mt-1 text-subtle leading-relaxed">
-                    {finding.explanation.how_fix_works}
-                  </p>
-                </div>
-                <div className="border-t border-border pt-3 text-subtle/50 text-[10px]">
-                  model: {finding.explanation.model}
+                {explanationMode === "simplified" ? (
+                  <div className="space-y-3">
+                    <div className="rounded border border-accent/30 bg-accent/5 p-3">
+                      <span className="text-accent text-[11px] font-semibold block mb-1">
+                        Simplified Explanation (Intuitive Concept)
+                      </span>
+                      <p className="text-foreground leading-relaxed text-xs">
+                        {finding.explanation.simplified_explanation ||
+                          finding.explanation.what_it_is}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-subtle text-[11px]">in plain terms:</span>
+                      <p className="mt-1 text-foreground/90 leading-relaxed">
+                        {finding.explanation.how_fix_works}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-subtle text-[11px]">owasp category:</span>
+                      <p className="mt-1 text-foreground">{finding.explanation.owasp_category}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-accent">what it is</span>
+                      <p className="mt-1 text-subtle leading-relaxed">
+                        {finding.explanation.what_it_is}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-accent">why it happened</span>
+                      <p className="mt-1 text-subtle leading-relaxed">
+                        {finding.explanation.why_it_happened}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-accent">owasp category</span>
+                      <p className="mt-1 text-foreground">{finding.explanation.owasp_category}</p>
+                    </div>
+                    <div>
+                      <span className="text-accent">how the fix works</span>
+                      <p className="mt-1 text-subtle leading-relaxed">
+                        {finding.explanation.how_fix_works}
+                      </p>
+                    </div>
+                    {finding.explanation.technical_explanation && (
+                      <div className="mt-2 border-t border-border/60 pt-3">
+                        <span className="text-accent text-[11px]">deep technical breakdown</span>
+                        <p className="mt-1 text-foreground/90 leading-relaxed text-[11px]">
+                          {finding.explanation.technical_explanation}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="border-t border-border pt-3 text-subtle/50 text-[10px] flex items-center justify-between">
+                  <span>model: {finding.explanation.model || "gemini-1.5-flash"}</span>
+                  <span className="capitalize text-accent/80 font-medium">
+                    {explanationMode} view
+                  </span>
                 </div>
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-elevated p-5 flex items-center justify-between">
                 <span className="font-mono text-xs text-subtle">explanation not yet generated</span>
                 <button
-                  onClick={dismissFalsePositive}
-                  disabled={deciding}
-                  className="font-mono text-[11px] text-warning hover:underline cursor-pointer"
+                  onClick={() => handleRegenerateAi()}
+                  disabled={regenerating}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-xs text-accent hover:bg-accent/20 transition-colors"
                 >
-                  dismiss as false positive
+                  <Sparkles className="size-3" />
+                  generate with gemini
                 </button>
               </div>
             )}
@@ -431,7 +711,9 @@ function FindingDetailPage() {
         </div>
 
         {/* Patch diff */}
-        {finding.patch?.diff && (
+        {finding.patch?.diff &&
+        !finding.patch.diff.includes("Patch generation failed") &&
+        !finding.patch.diff.includes("quota exceeded") ? (
           <div className="mt-8">
             <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
               proposed patch
@@ -439,6 +721,27 @@ function FindingDetailPage() {
             <TerminalWindow title={`diff — ${finding.file_path}`}>
               <DiffView lines={parseDiff(finding.patch.diff)} />
             </TerminalWindow>
+          </div>
+        ) : (
+          <div className="mt-8 rounded-lg border border-border bg-elevated p-5">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-subtle">
+              proposed patch
+            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="font-mono text-xs text-subtle">
+                {finding.patch?.diff?.includes("failed") || finding.patch?.diff?.includes("quota")
+                  ? "Patch generation was rate-limited during the initial scan."
+                  : "No valid patch generated yet."}
+              </span>
+              <button
+                onClick={() => handleRegenerateAi()}
+                disabled={regenerating}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 font-mono text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+              >
+                <Sparkles className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} />
+                {regenerating ? "generating patch…" : "generate patch with gemini"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -628,7 +931,8 @@ function FindingDetailPage() {
                             : "text-subtle hover:text-foreground"
                       }`}
                     >
-                      {String.fromCharCode(97 + i)}) {typeof opt === "string" ? opt : (opt as any).text}
+                      {String.fromCharCode(97 + i)}){" "}
+                      {typeof opt === "string" ? opt : (opt as any).text}
                       {quizSubmitted && i === quiz.correctIndex && " ✓ correct"}
                       {quizSubmitted && i === quizAnswer && i !== quiz.correctIndex && " ✗"}
                     </button>
@@ -654,12 +958,37 @@ function FindingDetailPage() {
                         correct answer: {String.fromCharCode(97 + quiz.correctIndex)})
                       </p>
                     )}
+                    {quizAnswer !== null &&
+                      quizAnswer !== quiz.correctIndex &&
+                      quiz.options[quizAnswer]?.misconceptionId && (
+                        <div className="rounded bg-warning/10 border border-warning/20 p-2 text-warning text-[10px]">
+                          <span className="font-semibold block uppercase tracking-wider mb-0.5">
+                            Diagnosed Misconception:
+                          </span>
+                          {MISCONCEPTION_LABELS[quiz.options[quizAnswer]!.misconceptionId!] ||
+                            "Common security misconception."}
+                        </div>
+                      )}
+                    {quiz.source && (
+                      <div className="text-subtle/80 text-[10px] flex items-center gap-1.5 pt-1">
+                        <span>Source:</span>
+                        <a
+                          href={quiz.source.match(/https?:\/\/[^\s)]+/)?.[0] || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-accent underline hover:text-accent/80"
+                        >
+                          {quiz.source}
+                        </a>
+                      </div>
+                    )}
                     <div className="flex items-center gap-4 mt-2">
                       <Link
-                        to="/score"
+                        to="/learn"
+                        search={{ class: finding.vulnerability_class as VulnClass }}
                         className="text-accent hover:underline font-mono text-[11px]"
                       >
-                        view your security score →
+                        practice more in learning hub →
                       </Link>
                     </div>
                   </div>
