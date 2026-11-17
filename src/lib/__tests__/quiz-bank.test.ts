@@ -95,4 +95,25 @@ describe("Quiz Bank Integrity", () => {
       );
     }
   });
+
+  it("ensures correct options are well-distributed across A, B, C, D (not all one choice)", () => {
+    const counts = [0, 0, 0, 0];
+    for (const q of QUIZ_BANK) {
+      const idx = q.correctIndex;
+      counts[idx] = (counts[idx] ?? 0) + 1;
+    }
+
+    // All 4 positions (A=0, B=1, C=2, D=3) must have at least 5 questions each
+    for (let i = 0; i < 4; i++) {
+      expect(
+        counts[i] ?? 0,
+        `Expected position ${String.fromCharCode(65 + i)} to have at least 5 questions, got ${counts[i]}`,
+      ).toBeGreaterThanOrEqual(5);
+    }
+
+    // No single choice should represent more than 40% of the quiz bank
+    for (let i = 0; i < 4; i++) {
+      expect(counts[i] ?? 0).toBeLessThanOrEqual(QUIZ_BANK.length * 0.4);
+    }
+  });
 });

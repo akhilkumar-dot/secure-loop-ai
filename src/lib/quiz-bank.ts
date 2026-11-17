@@ -88,17 +88,17 @@ export const QUIZ_BANK: TieredQuestion[] = [
     question: "Why do parameterized queries prevent SQL injection?",
     options: [
       {
-        text: "They encrypt the input before reaching the database",
-        misconceptionId: "sqli_encrypt",
-      },
-      {
         text: "The query structure is parsed before user data is bound — input can never become SQL syntax",
         misconceptionId: null,
+      },
+      {
+        text: "They encrypt the input before reaching the database",
+        misconceptionId: "sqli_encrypt",
       },
       { text: "They strip all quotes from user input", misconceptionId: "sqli_strip_chars" },
       { text: "They run queries in a read-only transaction", misconceptionId: "sqli_readonly_tx" },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "OWASP SQL Injection Prevention Cheat Sheet: Query Parameterization (https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)",
   },
@@ -113,19 +113,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_escape_sufficient",
       },
       {
-        text: "Use a prepared statement with a placeholder (e.g. WHERE id = ?)",
-        misconceptionId: null,
-      },
-      {
         text: "Sanitise the input with a regex before interpolating it",
         misconceptionId: "sqli_sanitize_first",
+      },
+      {
+        text: "Use a prepared statement with a placeholder (e.g. WHERE id = ?)",
+        misconceptionId: null,
       },
       {
         text: "Use string templates inside a stored procedure",
         misconceptionId: "sqli_stored_proc_safe",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP SQL Injection Prevention Cheat Sheet: Primary Defenses (https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)",
   },
@@ -169,19 +169,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_two_payloads",
       },
       {
-        text: "A payload stored safely at first but executed as SQL when retrieved later in a different context",
-        misconceptionId: null,
+        text: "A SQL injection that only works through stored procedures",
+        misconceptionId: "sqli_stored_proc_only",
       },
       {
         text: "An injection that is blocked by the WAF on first attempt then retried",
         misconceptionId: "sqli_blocked_first",
       },
       {
-        text: "A SQL injection that only works through stored procedures",
-        misconceptionId: "sqli_stored_proc_only",
+        text: "A payload stored safely at first but executed as SQL when retrieved later in a different context",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "OWASP Top 10 - A03:2021 Injection & PortSwigger Second-Order SQLi (https://portswigger.net/web-security/sql-injection#what-is-second-order-sql-injection)",
   },
@@ -197,19 +197,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_params_unreliable",
       },
       {
-        text: "Second-order SQL injection from stored or computed values not treated as untrusted",
-        misconceptionId: null,
-      },
-      {
         text: "The developer should use an ORM instead of raw queries",
         misconceptionId: "sqli_orm_always_vuln",
+      },
+      {
+        text: "Second-order SQL injection from stored or computed values not treated as untrusted",
+        misconceptionId: null,
       },
       {
         text: "SQL injection requires knowing the database schema, so validation is usually sufficient",
         misconceptionId: "sqli_schema_required",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP SQL Injection Prevention: Defense in Depth (https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)",
   },
@@ -221,12 +221,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
       "A query is: SELECT * FROM users WHERE role='admin' AND active=1 OR id=<input>. If input = 0 OR 1=1, what happens?",
     options: [
       {
-        text: "No rows returned — the WHERE clause short-circuits on the AND",
-        misconceptionId: "sqli_precedence_wrong",
-      },
-      {
         text: "All rows returned — OR 1=1 evaluates true for every row after the AND clause",
         misconceptionId: null,
+      },
+      {
+        text: "No rows returned — the WHERE clause short-circuits on the AND",
+        misconceptionId: "sqli_precedence_wrong",
       },
       {
         text: "A syntax error — the injected payload breaks the query",
@@ -237,7 +237,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_only_empty_cat",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source: "MITRE CWE-89 & SQL Operator Precedence Standards (ISO/IEC 9075: SQL-92)",
   },
 
@@ -256,19 +256,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_orderby_safe",
       },
       {
-        text: "Parameters bind data values only — identifiers like column names must be validated against an allowlist server-side",
-        misconceptionId: null,
+        text: "The risk only exists in MySQL; other databases handle dynamic ORDER BY safely",
+        misconceptionId: "sqli_mysql_only",
       },
       {
         text: "Authentication middleware will block unauthenticated requests before they reach ORDER BY",
         misconceptionId: "sqli_auth_protects",
       },
       {
-        text: "The risk only exists in MySQL; other databases handle dynamic ORDER BY safely",
-        misconceptionId: "sqli_mysql_only",
+        text: "Parameters bind data values only — identifiers like column names must be validated against an allowlist server-side",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "OWASP SQL Injection Prevention: Dynamic Query Building & Allowlisting (https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)",
   },
@@ -307,12 +307,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
       "Which defense is most robust against SQL injection in a column-name dynamic filter scenario?",
     options: [
       {
-        text: "URL-encode the column name before inserting it into the query",
-        misconceptionId: "sqli_urlencode_sql",
-      },
-      {
         text: "Allowlist the column name against a hardcoded set of valid column names before using it",
         misconceptionId: null,
+      },
+      {
+        text: "URL-encode the column name before inserting it into the query",
+        misconceptionId: "sqli_urlencode_sql",
       },
       {
         text: "Apply a blacklist regex to remove SQL keywords like SELECT, DROP, OR",
@@ -323,7 +323,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "sqli_escape_sufficient",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source: "OWASP SQL Injection Prevention: Defense-in-Depth and Dynamic Identifiers",
   },
 
@@ -340,17 +340,17 @@ export const QUIZ_BANK: TieredQuestion[] = [
         text: "dangerouslySetInnerHTML with a regex filter that removes <script> tags",
         misconceptionId: "xss_regex_filter",
       },
-      {
-        text: "Plain JSX interpolation {userText} — React escapes HTML by default",
-        misconceptionId: null,
-      },
+      { text: "Base64-encode the text before rendering it", misconceptionId: "xss_base64_safe" },
       {
         text: "innerHTML after replacing <script> tags with empty strings",
         misconceptionId: "xss_strip_script",
       },
-      { text: "Base64-encode the text before rendering it", misconceptionId: "xss_base64_safe" },
+      {
+        text: "Plain JSX interpolation {userText} — React escapes HTML by default",
+        misconceptionId: null,
+      },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "OWASP Cross-Site Scripting Prevention Cheat Sheet: Output Encoding (https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)",
   },
@@ -366,19 +366,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "xss_controlled_input_unsafe",
       },
       {
-        text: "Controlled inputs are safe for text, but dangerouslySetInnerHTML or href={userUrl} can still introduce XSS",
-        misconceptionId: null,
-      },
-      {
         text: "React's JSX interpolation is framework-specific — it is only safe in React, not in Vue or Angular",
         misconceptionId: "xss_react_specific",
+      },
+      {
+        text: "Controlled inputs are safe for text, but dangerouslySetInnerHTML or href={userUrl} can still introduce XSS",
+        misconceptionId: null,
       },
       {
         text: "Nothing — controlled inputs completely prevent XSS",
         misconceptionId: "xss_jsx_interp_unsafe",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "React Security Documentation: Preventing XSS in JSX (https://react.dev/learn/rendering-lists#why-does-react-need-keys)",
   },
@@ -449,12 +449,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
     question: "What distinguishes DOM-based XSS from reflected XSS?",
     options: [
       {
-        text: "DOM-based XSS requires the user to be authenticated; reflected XSS does not",
-        misconceptionId: "xss_dom_requires_auth",
-      },
-      {
         text: "DOM-based XSS is executed by client-side JS reading attacker-controlled sources without a server round-trip",
         misconceptionId: null,
+      },
+      {
+        text: "DOM-based XSS requires the user to be authenticated; reflected XSS does not",
+        misconceptionId: "xss_dom_requires_auth",
       },
       {
         text: "DOM-based XSS stores the payload in the database; reflected XSS does not",
@@ -465,7 +465,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "xss_reflected_get_only",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "MDN Web Docs: Content Security Policy (CSP) (https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)",
   },
@@ -480,19 +480,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "xss_encode_at_storage",
       },
       {
-        text: "Encode at the point of rendering, context-specifically (HTML, JS, URL contexts differ)",
-        misconceptionId: null,
+        text: "Encoding is React-specific; plain HTML pages do not require encoding",
+        misconceptionId: "xss_react_specific",
       },
       {
         text: "Encoding once at any step in the pipeline is sufficient",
         misconceptionId: "xss_encode_once_safe",
       },
       {
-        text: "Encoding is React-specific; plain HTML pages do not require encoding",
-        misconceptionId: "xss_react_specific",
+        text: "Encode at the point of rendering, context-specifically (HTML, JS, URL contexts differ)",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "OWASP Cheat Sheet: DOM-based XSS Prevention (https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html)",
   },
@@ -512,19 +512,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "xss_react_sanitizes_href",
       },
       {
-        text: "The javascript: URI executes when clicked — React does not sanitize href scheme; validate/allowlist the protocol server-side",
-        misconceptionId: null,
-      },
-      {
         text: "Only XSS via URL fragments (#...) is possible in href — javascript: requires a full page reload",
         misconceptionId: "xss_fragment_xss",
+      },
+      {
+        text: "The javascript: URI executes when clicked — React does not sanitize href scheme; validate/allowlist the protocol server-side",
+        misconceptionId: null,
       },
       {
         text: "Long URLs are truncated by the browser before execution — the payload won't work",
         misconceptionId: "xss_url_length",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP Cross-Site Scripting Prevention: Context-Aware Encoding Rules (https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)",
   },
@@ -539,17 +539,17 @@ export const QUIZ_BANK: TieredQuestion[] = [
         text: "DOMPurify is a complete XSS solution — no vectors remain",
         misconceptionId: "xss_dompurify_complete",
       },
-      {
-        text: "JavaScript string contexts (e.g. element.onclick = userInput) where HTML encoding ≠ JS encoding",
-        misconceptionId: null,
-      },
+      { text: "Unicode-escaped payloads bypass DOMPurify", misconceptionId: "xss_unicode_bypass" },
       {
         text: "Base64-encoded payloads bypass DOMPurify's sanitisation",
         misconceptionId: "xss_base64_bypasses_purify",
       },
-      { text: "Unicode-escaped payloads bypass DOMPurify", misconceptionId: "xss_unicode_bypass" },
+      {
+        text: "JavaScript string contexts (e.g. element.onclick = userInput) where HTML encoding ≠ JS encoding",
+        misconceptionId: null,
+      },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "React Security: Sanitizing dangerouslySetInnerHTML & Href Attributes (https://react.dev/reference/react-dom/components/common#dangerously-setting-the-inner-html)",
   },
@@ -591,12 +591,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
     question: "What is a CSRF attack?",
     options: [
       {
-        text: "An attacker injects malicious scripts into a web page viewed by other users",
-        misconceptionId: "csrf_is_xss",
-      },
-      {
         text: "An attacker tricks a victim's browser into making authenticated requests to a site without the victim's intent",
         misconceptionId: null,
+      },
+      {
+        text: "An attacker injects malicious scripts into a web page viewed by other users",
+        misconceptionId: "csrf_is_xss",
       },
       {
         text: "An attacker intercepts and modifies traffic between the browser and server",
@@ -607,7 +607,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_is_dos",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "MITRE CWE-352: Cross-Site Request Forgery (CSRF) (https://cwe.mitre.org/data/definitions/352.html)",
   },
@@ -622,19 +622,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_get_only",
       },
       {
-        text: "State-changing requests (POST, PUT, DELETE, PATCH) — GET should be idempotent",
-        misconceptionId: null,
-      },
-      {
         text: "Only DELETE requests — other methods are protected by browser CORS",
         misconceptionId: "csrf_delete_only",
+      },
+      {
+        text: "State-changing requests (POST, PUT, DELETE, PATCH) — GET should be idempotent",
+        misconceptionId: null,
       },
       {
         text: "POST requests require user interaction to send, so they cannot be forged",
         misconceptionId: "csrf_post_requires_interaction",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP Cross-Site Request Forgery Prevention Cheat Sheet: State-Changing GETs (https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)",
   },
@@ -649,19 +649,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_token_client_only",
       },
       {
-        text: "The server must verify the token on every state-changing request and reject requests with missing/invalid tokens",
-        misconceptionId: null,
-      },
-      {
         text: "The token must be stored in a hidden input field that is inaccessible to other origins",
         misconceptionId: "csrf_hidden_field_safe",
+      },
+      {
+        text: "The server must verify the token on every state-changing request and reject requests with missing/invalid tokens",
+        misconceptionId: null,
       },
       {
         text: "The token must be rotated on every single request (per-request tokens)",
         misconceptionId: "csrf_token_per_request",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP CSRF Prevention Cheat Sheet: Synchronizer Token Pattern (https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)",
   },
@@ -677,19 +677,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
     options: [
       { text: "SameSite is ignored by mobile browsers", misconceptionId: "csrf_samesite_mobile" },
       {
-        text: "Legacy clients, top-level GET navigations, and subdomains still send cookies — a synchronizer token proves intent",
-        misconceptionId: null,
+        text: "SameSite only works over HTTP/2 connections",
+        misconceptionId: "csrf_samesite_http2",
       },
       {
         text: "CSRF tokens are encrypted; SameSite cookies are not",
         misconceptionId: "csrf_token_encrypted",
       },
       {
-        text: "SameSite only works over HTTP/2 connections",
-        misconceptionId: "csrf_samesite_http2",
+        text: "Legacy clients, top-level GET navigations, and subdomains still send cookies — a synchronizer token proves intent",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "MDN Web Docs: SameSite Cookie Attribute (https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite)",
   },
@@ -728,12 +728,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
     question: "Can a Referer header be used as a sole CSRF defence?",
     options: [
       {
-        text: "Yes — the Referer header is set by the browser and cannot be forged by JavaScript",
-        misconceptionId: "csrf_referer_reliable",
-      },
-      {
         text: "No — the Referer header can be absent (privacy settings, HTTPS→HTTP redirects) and in some cases can be spoofed",
         misconceptionId: null,
+      },
+      {
+        text: "Yes — the Referer header is set by the browser and cannot be forged by JavaScript",
+        misconceptionId: "csrf_referer_reliable",
       },
       {
         text: "Yes — over HTTPS the Referer header is always present and trustworthy",
@@ -744,7 +744,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_referer_http_only",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "OWASP CSRF Prevention: Referer and Origin Header Validation Limitations (https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)",
   },
@@ -760,12 +760,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
       "An app uses SameSite=Strict on its session cookie. Under what scenario can CSRF still succeed?",
     options: [
       {
-        text: "SameSite=Strict is a complete CSRF defence — no CSRF is possible",
-        misconceptionId: "csrf_strict_complete",
-      },
-      {
         text: "An open redirect on the same origin can serve as a same-site initiator, bypassing SameSite=Strict for authenticated requests",
         misconceptionId: null,
+      },
+      {
+        text: "SameSite=Strict is a complete CSRF defence — no CSRF is possible",
+        misconceptionId: "csrf_strict_complete",
       },
       {
         text: "Attackers can only exploit redirects when the victim is not logged in",
@@ -776,7 +776,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_redirect_same_domain",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "RFC 6265bis & OWASP CSRF Prevention: SameSite Cookie Lax/Strict Bypass via Top-Level Navigation",
   },
@@ -818,19 +818,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "csrf_lax_referer",
       },
       {
-        text: "SameSite=Strict session cookie + synchronizer CSRF token in a custom request header (not a cookie)",
-        misconceptionId: null,
-      },
-      {
         text: "HTTPS with rate limiting — this prevents automated CSRF attacks",
         misconceptionId: "csrf_https_rate_limit",
+      },
+      {
+        text: "SameSite=Strict session cookie + synchronizer CSRF token in a custom request header (not a cookie)",
+        misconceptionId: null,
       },
       {
         text: "Store the CSRF token in the URL query string so the server can always read it",
         misconceptionId: "csrf_token_in_url",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source: "OWASP Cross-Site Request Forgery Prevention Cheat Sheet: Defense in Depth",
   },
 
@@ -845,19 +845,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
     options: [
       { text: "JSON.parse() is faster than eval()", misconceptionId: "deser_json_faster" },
       {
-        text: "JSON describes data only — it cannot construct objects or execute code during parsing; eval() can run arbitrary JS",
-        misconceptionId: null,
+        text: "eval() cannot handle nested objects correctly",
+        misconceptionId: "deser_eval_no_nested",
       },
       {
         text: "JSON.parse() automatically validates that the input matches a schema",
         misconceptionId: "deser_json_validates",
       },
       {
-        text: "eval() cannot handle nested objects correctly",
-        misconceptionId: "deser_eval_no_nested",
+        text: "JSON describes data only — it cannot construct objects or execute code during parsing; eval() can run arbitrary JS",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "OWASP Deserialization Cheat Sheet: Serialization Formats vs Code Execution (https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html)",
   },
@@ -872,19 +872,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_pickle_slow",
       },
       {
-        text: "pickle can execute arbitrary Python code during deserialization via __reduce__",
-        misconceptionId: null,
+        text: "pickle produces larger payloads than JSON, causing memory issues",
+        misconceptionId: "deser_pickle_size",
       },
       {
         text: "pickle is deprecated since Python 3.10",
         misconceptionId: "deser_pickle_deprecated",
       },
       {
-        text: "pickle produces larger payloads than JSON, causing memory issues",
-        misconceptionId: "deser_pickle_size",
+        text: "pickle can execute arbitrary Python code during deserialization via __reduce__",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source:
       "Python Official Documentation: pickle module security advisory (https://docs.python.org/3/library/pickle.html)",
   },
@@ -900,19 +900,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_limited_to_java_python",
       },
       {
-        text: "Any language with a serialization format that can represent executable logic or complex objects (Java, Python, PHP, Ruby, .NET, Node)",
-        misconceptionId: null,
-      },
-      {
         text: "Only languages with runtime reflection APIs",
         misconceptionId: "deser_reflection_required",
+      },
+      {
+        text: "Any language with a serialization format that can represent executable logic or complex objects (Java, Python, PHP, Ruby, .NET, Node)",
+        misconceptionId: null,
       },
       {
         text: "Only server-side languages running as root/admin processes",
         misconceptionId: "deser_requires_admin",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "MITRE CWE-502: Deserialization of Untrusted Data (https://cwe.mitre.org/data/definitions/502.html)",
   },
@@ -954,12 +954,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
     question: "What is a 'gadget chain' in the context of deserialization attacks?",
     options: [
       {
-        text: "A sequence of API calls an attacker makes after gaining initial access",
-        misconceptionId: "deser_gadget_post_exploit",
-      },
-      {
         text: "A sequence of existing application classes whose methods are chained to achieve code execution during deserialization",
         misconceptionId: null,
+      },
+      {
+        text: "A sequence of API calls an attacker makes after gaining initial access",
+        misconceptionId: "deser_gadget_post_exploit",
       },
       {
         text: "A debugging tool used to trace serialization calls",
@@ -970,7 +970,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_gadget_hardware",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source:
       "Frohoff & ysoserial: Understanding Java Gadget Chains (https://github.com/frohoff/ysoserial)",
   },
@@ -1018,19 +1018,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_signature_sufficient",
       },
       {
-        text: "The gadget chain executes during the deserialize() call itself — before any application-level validation code runs",
-        misconceptionId: null,
+        text: "Java's SecurityManager would catch and block gadget chain execution",
+        misconceptionId: "deser_security_manager",
       },
       {
         text: "HMAC is unbreakable — the attacker cannot produce a valid signed payload without the key",
         misconceptionId: "deser_hmac_unbreakable",
       },
       {
-        text: "Java's SecurityManager would catch and block gadget chain execution",
-        misconceptionId: "deser_security_manager",
+        text: "The gadget chain executes during the deserialize() call itself — before any application-level validation code runs",
+        misconceptionId: null,
       },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
     source: "MITRE CWE-502 & Oracle Secure Coding Standard for Java: Serialization",
   },
   {
@@ -1041,12 +1041,12 @@ export const QUIZ_BANK: TieredQuestion[] = [
       "A Node.js app uses node-serialize to restore user session data from a cookie. What is the risk?",
     options: [
       {
-        text: "No risk — node-serialize uses JSON internally, which cannot execute code",
-        misconceptionId: "deser_json_executes",
-      },
-      {
         text: "node-serialize can deserialize IIFE syntax, allowing arbitrary code execution when the cookie is restored",
         misconceptionId: null,
+      },
+      {
+        text: "No risk — node-serialize uses JSON internally, which cannot execute code",
+        misconceptionId: "deser_json_executes",
       },
       {
         text: "No risk — require() calls inside the payload would need to be explicitly invoked to run",
@@ -1057,7 +1057,7 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_buffer_overflow",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
     source: "CVE-2017-5941: node-serialize Untrusted Code Execution via IIFE",
   },
   {
@@ -1072,19 +1072,19 @@ export const QUIZ_BANK: TieredQuestion[] = [
         misconceptionId: "deser_catch_exceptions",
       },
       {
-        text: "Use a data-only format (JSON/protobuf) with strict schema validation, or deserialize in an isolated sandbox with no dangerous classes on the classpath",
-        misconceptionId: null,
-      },
-      {
         text: "Encrypt the serialized stream — attackers cannot modify an encrypted payload",
         misconceptionId: "deser_encrypt_stream",
+      },
+      {
+        text: "Use a data-only format (JSON/protobuf) with strict schema validation, or deserialize in an isolated sandbox with no dangerous classes on the classpath",
+        misconceptionId: null,
       },
       {
         text: "Enable Java's SecurityManager to block gadget chains at runtime",
         misconceptionId: "deser_security_manager",
       },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     source:
       "OWASP Deserialization Prevention Cheat Sheet: Architectural Remediation (https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html)",
   },

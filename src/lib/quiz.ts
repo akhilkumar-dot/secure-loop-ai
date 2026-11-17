@@ -17,32 +17,32 @@ export const QUIZ_DATA: Record<VulnClass, QuizQuestion> = {
   sqli: {
     question: "Why do parameterized queries prevent SQL injection?",
     options: [
-      "They encrypt the input before reaching the database",
       "The query structure is parsed before user data is bound — input can never become SQL syntax",
+      "They encrypt the input before reaching the database",
       "They strip all quotes from user input",
       "They run queries in a read-only transaction",
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   xss: {
     question: "What is the safest default way to render user text in a React component?",
     options: [
       "dangerouslySetInnerHTML with a regex filter",
+      "Base64-encoding the text first",
       "Plain JSX interpolation — React escapes HTML output by default",
       "innerHTML after replacing <script> tags",
-      "Base64-encoding the text first",
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   csrf: {
     question: "Why doesn't SameSite=Lax cookie alone fully replace CSRF tokens?",
     options: [
       "SameSite is ignored by mobile browsers",
-      "Legacy clients, top-level GET navigations, and subdomains still send cookies — a token proves intent",
       "CSRF tokens are encrypted, cookies are not",
       "SameSite only works over HTTP/2",
+      "Legacy clients, top-level GET navigations, and subdomains still send cookies — a token proves intent",
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   insecure_deserialization: {
     question: "Why is JSON preferred over pickle/node-serialize for untrusted input?",
@@ -59,11 +59,11 @@ export const QUIZ_DATA: Record<VulnClass, QuizQuestion> = {
       "Which of the following correctly prevents command injection when running an OS process?",
     options: [
       "Escaping shell metacharacters with a regex before passing to exec()",
-      "Using a fixed argument array (e.g. execFile(['cmd', arg])) so no shell is invoked",
       "Running the command in a Docker container",
+      "Using a fixed argument array (e.g. execFile(['cmd', arg])) so no shell is invoked",
       "Sanitising the input by removing spaces and semicolons",
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
 };
 
