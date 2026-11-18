@@ -16,6 +16,7 @@ export type FindingStatus =
   | "validated"
   | "accepted"
   | "rejected"
+  | "validation_rejected"
   | "likely_false_positive"
   | "dismissed";
 

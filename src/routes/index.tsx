@@ -91,7 +91,10 @@ function MarketingNav() {
                   >
                     sign out
                   </button>
-                  <PillLink to="/dashboard" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs">
+                  <PillLink
+                    to="/dashboard"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs"
+                  >
                     dashboard →
                   </PillLink>
                 </>
@@ -103,7 +106,10 @@ function MarketingNav() {
                   >
                     sign in
                   </Link>
-                  <PillLink to="/login" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs">
+                  <PillLink
+                    to="/login"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs"
+                  >
                     get started
                   </PillLink>
                 </>
@@ -283,7 +289,10 @@ function TrustStrip() {
         <Eyebrow className="text-center">powered by</Eyebrow>
         <div className="mt-5 sm:mt-6 flex flex-wrap items-center justify-center gap-x-8 sm:gap-x-12 gap-y-3 sm:gap-y-4">
           {items.map((name) => (
-            <span key={name} className="font-mono text-xs sm:text-sm font-medium tracking-wide text-subtle/70">
+            <span
+              key={name}
+              className="font-mono text-xs sm:text-sm font-medium tracking-wide text-subtle/70"
+            >
               {name}
             </span>
           ))}
@@ -460,11 +469,17 @@ function ComparisonSection() {
           <table className="w-full min-w-[480px] font-mono text-xs">
             <thead>
               <tr className="border-b border-border bg-elevated text-left text-subtle">
-                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">approach</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">
+                  approach
+                </th>
                 <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">detect</th>
-                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">explain</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">
+                  explain
+                </th>
                 <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">patch</th>
-                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">validate</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">
+                  validate
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -486,7 +501,13 @@ function ComparisonSection() {
                   <td className="px-4 sm:px-5 py-3.5">{row.detect ? "✓" : "✗"}</td>
                   <td className="px-4 sm:px-5 py-3.5">{row.explain ? "✓" : "✗"}</td>
                   <td className="px-4 sm:px-5 py-3.5">{row.patch ? "✓" : "✗"}</td>
-                  <td className={row.validate === "✓" ? "px-4 sm:px-5 py-3.5 text-success" : "px-4 sm:px-5 py-3.5"}>
+                  <td
+                    className={
+                      row.validate === "✓"
+                        ? "px-4 sm:px-5 py-3.5 text-success"
+                        : "px-4 sm:px-5 py-3.5"
+                    }
+                  >
                     {row.validate}
                   </td>
                 </tr>
@@ -608,7 +629,9 @@ function Faq() {
                   <Plus className="size-4 shrink-0 text-subtle" />
                 )}
               </button>
-              {open === i && <p className="pb-5 sm:pb-6 text-xs sm:text-sm leading-relaxed text-subtle">{f.a}</p>}
+              {open === i && (
+                <p className="pb-5 sm:pb-6 text-xs sm:text-sm leading-relaxed text-subtle">{f.a}</p>
+              )}
             </div>
           ))}
         </div>

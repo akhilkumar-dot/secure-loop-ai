@@ -141,6 +141,13 @@ function ReportPage() {
   const validatedCount = findings.filter(
     (f) => f.patch?.validation_verdict === "accepted" || f.patch?.validation_vulnerability_gone,
   ).length;
+  const suppressedCount = findings.filter(
+    (f) =>
+      f.status === "dismissed" ||
+      f.status === "likely_false_positive" ||
+      f.explanation?.likely_false_positive === true,
+  ).length;
+  const fpRate = findings.length > 0 ? Math.round((suppressedCount / findings.length) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground print:bg-white print:text-black">
@@ -205,7 +212,7 @@ function ReportPage() {
           <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-subtle mb-3">
             Executive Summary
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
               <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
                 security score
@@ -236,6 +243,15 @@ function ReportPage() {
               </p>
               <p className="mt-2 font-display text-3xl font-bold text-foreground print:text-black">
                 {acceptedCount}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                suppressed / fp rate
+              </p>
+              <p className="mt-2 font-display text-3xl font-bold text-warning print:text-black">
+                {suppressedCount}{" "}
+                <span className="text-sm font-normal text-subtle font-mono">({fpRate}%)</span>
               </p>
             </div>
           </div>
@@ -282,6 +298,23 @@ function ReportPage() {
             <div className="space-y-6">
               {findings.map((f, i) => {
                 const diffLines = f.patch?.diff ? parseDiff(f.patch.diff) : [];
+                const displayStatus =
+                  f.status === "accepted"
+                    ? "accepted"
+                    : f.status === "rejected"
+                      ? "rejected"
+                      : f.status === "dismissed"
+                        ? "dismissed"
+                        : f.status === "likely_false_positive"
+                          ? "likely_false_positive"
+                          : f.patch?.validation_verdict === "rejected"
+                            ? "validation_rejected"
+                            : f.patch?.validation_verdict === "accepted"
+                              ? "validated"
+                              : f.status;
+                const isHeuristic =
+                  f.tool === "gemini-llm-heuristic" || (f as any).source === "llm-heuristic";
+
                 return (
                   <div
                     key={f.id}
@@ -298,8 +331,14 @@ function ReportPage() {
                           ({f.cwe || "CWE-Unassigned"})
                         </span>
                       </div>
-                      <StatusBadge status={f.status} />
+                      <StatusBadge status={displayStatus} />
                     </div>
+
+                    {isHeuristic && (
+                      <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-mono text-xs text-amber-300">
+                        no deterministic rule, validation is limited
+                      </div>
+                    )}
 
                     <div className="font-mono text-xs space-y-1">
                       <p>

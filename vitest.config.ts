@@ -21,6 +21,7 @@ export default defineConfig({
       "src/**/__tests__/preflight-errors.test.ts",
       "src/**/__tests__/explanation-logic.test.ts",
       "src/**/__tests__/explanation-integration.test.ts",
+      "src/**/__tests__/decision-actions.test.ts",
     ],
     globals: true,
   },

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Logo } from "@/components/chrome";
 import { runBenchmark, type BenchmarkSummary, type SampleResult } from "@/lib/benchmark-runner";
+import { supabase } from "@/lib/supabase";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/benchmark")({
   head: () => ({
@@ -47,6 +49,19 @@ function BenchmarkPage() {
   const [manualFPs, setManualFPs] = useState<Record<string, boolean>>({});
   const [lastRunTime, setLastRunTime] = useState<string>(new Date().toLocaleTimeString());
   const [activeTab, setActiveTab] = useState<"results" | "comparison">("results");
+  const [dbSuppressionCount, setDbSuppressionCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    async function loadSuppressionStats() {
+      const { count } = await supabase
+        .from("false_positive_suppressions")
+        .select("*", { count: "exact", head: true });
+      if (typeof count === "number") {
+        setDbSuppressionCount(count);
+      }
+    }
+    loadSuppressionStats();
+  }, []);
 
   // Run benchmark dynamically with current manual FP overrides
   const summary: BenchmarkSummary = useMemo(() => {
@@ -192,6 +207,11 @@ function BenchmarkPage() {
             <p className="mt-1 font-mono text-[10px] text-subtle/80">
               FP / (FP + TN) on safe controls
             </p>
+            {dbSuppressionCount !== null && dbSuppressionCount > 0 && (
+              <p className="mt-2 font-mono text-[10px] text-warning/90 border-t border-border/60 pt-1.5">
+                + {dbSuppressionCount} real scan false-positive(s) suppressed in app
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-elevated p-5">

@@ -16,9 +16,15 @@ const summary = runBenchmark();
 console.log("────────────────────────────────────────────────────");
 console.log("Summary Metrics (Honest Evaluation):");
 console.log("────────────────────────────────────────────────────");
-console.log(`Total Samples:              ${summary.totalSamples} (Vulnerable: ${summary.vulnerableCount}, Safe Controls: ${summary.safeControlCount})`);
-console.log(`Detection Rate (Recall):    ${summary.detectionRate}% (${summary.truePositives} / ${summary.vulnerableCount})`);
-console.log(`False Positive Rate:        ${summary.falsePositiveRate}% (${summary.falsePositives} / ${summary.safeControlCount})`);
+console.log(
+  `Total Samples:              ${summary.totalSamples} (Vulnerable: ${summary.vulnerableCount}, Safe Controls: ${summary.safeControlCount})`,
+);
+console.log(
+  `Detection Rate (Recall):    ${summary.detectionRate}% (${summary.truePositives} / ${summary.vulnerableCount})`,
+);
+console.log(
+  `False Positive Rate:        ${summary.falsePositiveRate}% (${summary.falsePositives} / ${summary.safeControlCount})`,
+);
 console.log(`Patch Validation Rate:      ${summary.patchSuccessRate}%`);
 console.log(`Total Runtime:              ${summary.totalRuntimeMs}ms`);
 console.log("────────────────────────────────────────────────────\n");
@@ -38,4 +44,3 @@ console.table(
 );
 
 console.log("\nComparison template available at: benchmark/comparison-template.csv");
-

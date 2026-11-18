@@ -1,6 +1,7 @@
 # SecureLoop — Review 3 Demonstration Walkthrough (DEMO.md)
 
 This walkthrough demonstrates the end-to-end capabilities implemented for **Review 3 (Weeks 6–9)**:
+
 - **Misconception Detection** (Adaptive learning diagnosis, 3-of-4 recurrence rule)
 - **Locked Tier Progression** (Server-side enforced thresholds: Easy → Medium → Hard)
 - **Adaptive Mastery & Spaced Repetition** (SM-2 scheduler, live "Due for review" indicators)
@@ -14,11 +15,13 @@ This walkthrough demonstrates the end-to-end capabilities implemented for **Revi
 You can seed the full realistic demo history either via CLI or with a single click in the UI:
 
 ### Option A: From UI
+
 1. Navigate to **http://localhost:5173/dashboard** (or your local port).
 2. Click the **`load demo data`** button in the top right of the dashboard.
 3. Realistic OWASP WebGoat project, scan findings, misconception history, and spaced reviews are instantly loaded!
 
 ### Option B: From Terminal
+
 ```bash
 npm run seed:demo
 ```
@@ -28,10 +31,11 @@ npm run seed:demo
 ## Step-by-Step Click Path
 
 ### Step 1: Dashboard Overview & Misconception Diagnosis
+
 1. Visit `/dashboard`.
 2. Observe the **Learning Diagnosis Card**:
-   - Notice the diagnosis: *"Believes encoding/encrypting input prevents SQL injection"*.
-   - Notice the supporting evidence: *"Triggered in 3 of your last 4 answers for this class"*.
+   - Notice the diagnosis: _"Believes encoding/encrypting input prevents SQL injection"_.
+   - Notice the supporting evidence: _"Triggered in 3 of your last 4 answers for this class"_.
    - Plain score is secondary; the actionable diagnosis is the primary focal point.
 3. Observe the **Spaced Repetition & Due Reviews** grid:
    - **SQL Injection**: Marked **`● Due for review`** (SM-2 interval shortened due to recurring misconception).
@@ -41,6 +45,7 @@ npm run seed:demo
 ---
 
 ### Step 2: Finding Detail & Remediation End-to-End
+
 1. In the **Projects** table on the dashboard, click on **`OWASP WebGoat Audit`**.
 2. You will land on the Findings List (`/findings/:projectId`).
 3. Click on the first critical finding: **`javascript.sql.node-sqli-injection`** (`contributions.js`).
@@ -53,6 +58,7 @@ npm run seed:demo
 ---
 
 ### Step 3: Locked Tiered Education Check
+
 1. Immediately upon accepting the patch, the **Education Check** appears:
    - Notice the tier indicator: **`tier: easy`**.
    - Review the question with options mapped to named misconceptions.
@@ -63,6 +69,7 @@ npm run seed:demo
 ---
 
 ### Step 4: Spaced Repetition in the Learning Hub (`/learn`)
+
 1. In the top navigation, click **`learn`** or navigate to `/learn`.
 2. Inspect the **Vulnerability Mastery Profiles**:
    - Each class displays its status: **Mastered**, **Learning**, or **Weak**.
@@ -75,6 +82,7 @@ npm run seed:demo
 ---
 
 ### Step 5: PDF Audit Report Export (`/report/:projectId`)
+
 1. From the Findings page or top navigation, click **`export PDF report`** (or go to `/report/:projectId`).
 2. The print-ready **Security Audit & Learning Report** is rendered:
    - Clear header with **User Email**, **Project Name**, and **Generation Date**.
@@ -88,6 +96,7 @@ npm run seed:demo
 ---
 
 ### Step 6: Empirical Benchmark & False-Positive Evaluation (`/benchmark`)
+
 1. Click **`benchmark`** in the navigation header or run in terminal:
    ```bash
    npm run benchmark
@@ -112,5 +121,5 @@ Run all 72 unit tests spanning score computation, SAST detection, patch applicat
 ```bash
 npm test
 ```
-*(All 72 tests pass across 6 test suites).*
 
+_(All 72 tests pass across 6 test suites)._

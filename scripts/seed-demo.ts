@@ -29,7 +29,9 @@ async function main() {
   }
 
   if (!targetUserId) {
-    console.error("No user found in Supabase. Please sign up or log in first in your browser at http://localhost:5173/login");
+    console.error(
+      "No user found in Supabase. Please sign up or log in first in your browser at http://localhost:5173/login",
+    );
     console.log("Alternatively, use the 'Load Demo Walkthrough' button directly on the Dashboard!");
     process.exit(1);
   }
@@ -51,4 +53,3 @@ main().catch((err) => {
   console.error("Seeding failed:", err);
   process.exit(1);
 });
-

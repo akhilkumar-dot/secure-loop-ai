@@ -417,9 +417,10 @@ export async function generatePatch(
   apiKeyOverride?: string,
   backupKeyOverride?: string,
   userId?: string,
+  feedbackContext?: { previousDiff?: string | undefined; rejectionNote?: string | undefined },
 ): Promise<GeminiPatch> {
-  // 1. Check persistent Supabase cache first if user and finding ID are present
-  if (userId && finding.id) {
+  // 1. Check persistent Supabase cache first if user and finding ID are present and no rejection feedback is provided
+  if (userId && finding.id && !feedbackContext?.previousDiff && !feedbackContext?.rejectionNote) {
     const cached = await getCachedAiOutput<GeminiPatch>(userId, finding.id, "patch");
     if (cached) {
       return cached.output;
@@ -434,6 +435,13 @@ export async function generatePatch(
     fileCtx = `\nFull file context${truncated ? ` (±${PATCH_CONTEXT_LINES} lines around finding)` : ""}:\n${safeCodeBlock(window, finding.file_path)}`;
   }
 
+  let feedbackSection = "";
+  if (feedbackContext?.previousDiff || feedbackContext?.rejectionNote) {
+    feedbackSection = `\n\nFEEDBACK FROM DEVELOPER (A previous patch attempt was REJECTED):
+${feedbackContext.rejectionNote ? `- Developer Note / Reason for rejection: "${feedbackContext.rejectionNote}"\n` : ""}${feedbackContext.previousDiff ? `- Previously rejected diff:\n${safeCodeBlock(feedbackContext.previousDiff, "rejected diff")}\n` : ""}
+Generate an alternative, improved patch that addresses the developer's rejection and meets all security requirements without repeating the previous issues.`;
+  }
+
   const prompt = `You are a secure code expert. Generate a precise, minimal fix for this security vulnerability.
 
 Vulnerability:
@@ -442,7 +450,7 @@ Vulnerability:
 - Message: ${finding.raw_message}
 - Vulnerable code:
 ${safeCodeBlock(codeContext, "vulnerable snippet")}
-${fileCtx}
+${fileCtx}${feedbackSection}
 
 Return ONLY valid JSON:
 {"diff":"unified diff — include @@ hunk header, exact line numbers matching the file above, - for removed, + for added","explanation":"1-2 sentences why this fixes the vulnerability"}

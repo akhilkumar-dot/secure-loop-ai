@@ -155,7 +155,24 @@ export interface DbDeveloperDecision {
   user_id: string;
   action: "accept" | "reject";
   is_override: boolean;
+  validation_was_rejected?: boolean;
+  rejection_note?: string | null;
   decided_at: string;
+}
+
+export interface DbFalsePositiveSuppression {
+  id: string;
+  user_id: string;
+  project_id: string;
+  finding_id: string;
+  rule_id?: string | null;
+  file_path: string;
+  line_start?: number | null;
+  vulnerability_class?: string | null;
+  reason_code:
+    "test_code" | "not_exploitable" | "accepted_risk" | "wrong_detection" | "other" | string;
+  reason_text?: string | null;
+  created_at: string;
 }
 
 export interface DbEducationCheck {

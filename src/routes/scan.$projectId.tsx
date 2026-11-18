@@ -585,23 +585,50 @@ function ScanPage() {
       return;
     }
 
-    // ── 4. Persist all findings (batched insert) ──────────────────────────────
-    const insertPayload = allFindings.map((f) => ({
-      scan_run_id: scanRun.id,
-      project_id: projectId,
-      tool: (f as { source?: string }).source === "sast" ? "sast-rules" : "gemini-llm-heuristic",
-      rule_id: f.rule_id,
-      cwe: f.cwe,
-      severity: f.severity,
-      file_path: f.file_path,
-      line_start: f.line_start,
-      line_end: f.line_end,
-      vulnerability_class: f.vulnerability_class,
-      raw_message: f.raw_message,
-      matched_text: (f as any).matched_text ?? null,
-      status: "open",
-      code_lines: f.code_lines,
-    }));
+    // ── 4. Persist all findings (batched insert with suppression check) ───────
+    // Query previously dismissed false-positives for this project lineage
+    const { data: projectSuppressions } = await supabase
+      .from("false_positive_suppressions")
+      .select("*")
+      .eq("project_id", projectId);
+
+    const activeSuppressions = projectSuppressions ?? [];
+
+    const insertPayload = allFindings.map((f) => {
+      const isSuppressed = activeSuppressions.some(
+        (s) =>
+          s.file_path === f.file_path &&
+          (s.rule_id ? s.rule_id === f.rule_id : true) &&
+          (s.line_start !== null && s.line_start !== undefined && f.line_start !== undefined
+            ? Math.abs(s.line_start - f.line_start) <= 2
+            : true),
+      );
+
+      return {
+        scan_run_id: scanRun.id,
+        project_id: projectId,
+        tool: (f as { source?: string }).source === "sast" ? "sast-rules" : "gemini-llm-heuristic",
+        rule_id: f.rule_id,
+        cwe: f.cwe,
+        severity: f.severity,
+        file_path: f.file_path,
+        line_start: f.line_start,
+        line_end: f.line_end,
+        vulnerability_class: f.vulnerability_class,
+        raw_message: f.raw_message,
+        matched_text: (f as any).matched_text ?? null,
+        status: isSuppressed ? ("dismissed" as const) : ("open" as const),
+        code_lines: f.code_lines,
+      };
+    });
+
+    const suppressedCount = insertPayload.filter((p) => p.status === "dismissed").length;
+    if (suppressedCount > 0) {
+      addLog(
+        `  ⚑ ${suppressedCount} finding(s) suppressed based on previous false-positive dismissals`,
+        "warn",
+      );
+    }
 
     const { data: insertedFindings, error: insertErr } = await supabase
       .from("findings")
@@ -643,6 +670,14 @@ function ScanPage() {
     const falsePositiveFindings = new Set<string>();
 
     for (const f of findingsData ?? []) {
+      if (f.status === "dismissed") {
+        addLog(
+          `  ↷ skipping explanation for suppressed finding: ${f.file_path}:${f.line_start ?? 1}`,
+          "dim",
+        );
+        continue;
+      }
+
       try {
         const fileContent = fileMap.get(f.file_path);
         const explanation = await generateExplanation(

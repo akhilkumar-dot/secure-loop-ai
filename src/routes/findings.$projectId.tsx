@@ -102,9 +102,16 @@ function FindingsPage() {
           vulnerability findings
         </p>
         <div className="mt-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">
-            {project?.name ?? "…"}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-2xl font-semibold tracking-tight">
+              {project?.name ?? "…"}
+            </h1>
+            {findings.filter((f) => f.status === "dismissed").length > 0 && (
+              <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full border border-warning/30 bg-warning/10 text-warning">
+                {findings.filter((f) => f.status === "dismissed").length} suppressed
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Link
               to="/report/$projectId"
@@ -145,7 +152,15 @@ function FindingsPage() {
           ))}
           <span className="mx-1 text-border shrink-0">|</span>
           {(
-            ["all", "open", "validated", "accepted", "rejected", "likely_false_positive"] as const
+            [
+              "all",
+              "open",
+              "validated",
+              "accepted",
+              "rejected",
+              "likely_false_positive",
+              "dismissed",
+            ] as const
           ).map((st) => (
             <button
               key={st}
@@ -156,7 +171,11 @@ function FindingsPage() {
                   : "border-border text-subtle hover:text-foreground"
               }`}
             >
-              {st === "likely_false_positive" ? "false positives" : st}
+              {st === "likely_false_positive"
+                ? "likely FP"
+                : st === "dismissed"
+                  ? "suppressed"
+                  : st}
             </button>
           ))}
         </div>

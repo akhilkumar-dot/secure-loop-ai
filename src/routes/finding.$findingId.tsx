@@ -10,9 +10,20 @@ import {
   Lock,
   Sparkles,
   RefreshCw,
+  Download,
+  Copy,
+  Check,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase, type DbFinding, type DbExplanation, type DbPatch } from "@/lib/supabase";
+import {
+  supabase,
+  type DbFinding,
+  type DbExplanation,
+  type DbPatch,
+  type DbDeveloperDecision,
+  type DbFalsePositiveSuppression,
+} from "@/lib/supabase";
 import { generateExplanation, generatePatch, validatePatch } from "@/lib/ai-pipeline";
 import { generateRealExplanation, type ExplanationOutput } from "@/lib/explanation-service";
 import { checkExplanationGrounding, type GroundingCheckResult } from "@/lib/grounding-checker";
@@ -63,6 +74,18 @@ function FindingDetailPage() {
   const [quizAnswer, setQuizAnswer] = useState<number | null>(null);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
+  // Remediation & decision states
+  const [commitSha, setCommitSha] = useState<string | null>(null);
+  const [existingDecision, setExistingDecision] = useState<DbDeveloperDecision | null>(null);
+  const [suppression, setSuppression] = useState<DbFalsePositiveSuppression | null>(null);
+  const [showOverrideConfirm, setShowOverrideConfirm] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectionNote, setRejectionNote] = useState("");
+  const [showDismissDialog, setShowDismissDialog] = useState(false);
+  const [dismissReasonCode, setDismissReasonCode] = useState<string>("test_code");
+  const [dismissReasonText, setDismissReasonText] = useState("");
+  const [copiedDiff, setCopiedDiff] = useState(false);
+
   // Tiered quiz state
   const [activeQuestion, setActiveQuestion] = useState<TieredQuestion | null>(null);
   const [activeTier, setActiveTier] = useState<Tier>("easy");
@@ -101,6 +124,18 @@ function FindingDetailPage() {
       return;
     }
 
+    // Resolve commit sha from scan_runs
+    let sha: string | null = null;
+    if (f.scan_run_id) {
+      const { data: run } = await supabase
+        .from("scan_runs")
+        .select("commit_sha")
+        .eq("id", f.scan_run_id)
+        .maybeSingle();
+      sha = run?.commit_sha ?? null;
+    }
+    setCommitSha(sha);
+
     const { data: explanation } = await supabase
       .from("explanations")
       .select("*")
@@ -117,14 +152,31 @@ function FindingDetailPage() {
     if (patch?.id && user?.id) {
       const { data: decision } = await supabase
         .from("developer_decisions")
-        .select("action")
+        .select("*")
         .eq("patch_id", patch.id)
         .eq("user_id", user.id)
+        .order("decided_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (decision) {
         setDecisionDone(decision.action as "accept" | "reject");
+        setExistingDecision(decision as DbDeveloperDecision);
+        if (decision.rejection_note) {
+          setRejectionNote(decision.rejection_note);
+        }
       }
+    }
+
+    // Check for existing suppression record
+    const { data: supp } = await supabase
+      .from("false_positive_suppressions")
+      .select("*")
+      .eq("finding_id", findingId)
+      .maybeSingle();
+
+    if (supp) {
+      setSuppression(supp as DbFalsePositiveSuppression);
     }
 
     if (explanation) {
@@ -146,16 +198,29 @@ function FindingDetailPage() {
     setLoadingData(false);
   }
 
-  async function makeDecision(action: "accept" | "reject", override = false) {
+  async function makeDecision(action: "accept" | "reject", override = false, customNote?: string) {
     if (!finding?.patch || !user) return;
     setDeciding(true);
 
-    await supabase.from("developer_decisions").insert({
-      patch_id: finding.patch.id,
-      user_id: user.id,
-      action,
-      is_override: override,
-    });
+    const isValidationRejected = finding.patch.validation_verdict === "rejected";
+    const noteToSave = customNote !== undefined ? customNote : rejectionNote;
+
+    const { data: decisionRecord } = await supabase
+      .from("developer_decisions")
+      .insert({
+        patch_id: finding.patch.id,
+        user_id: user.id,
+        action,
+        is_override: override,
+        validation_was_rejected: isValidationRejected,
+        rejection_note: action === "reject" ? noteToSave.trim() || null : null,
+      })
+      .select("*")
+      .single();
+
+    if (decisionRecord) {
+      setExistingDecision(decisionRecord as DbDeveloperDecision);
+    }
 
     // Update finding status
     await supabase
@@ -168,7 +233,12 @@ function FindingDetailPage() {
       await recomputeScore(finding.project_id, user.id);
     }
 
+    setFinding((prev) =>
+      prev ? { ...prev, status: action === "accept" ? "accepted" : "rejected" } : null,
+    );
     setDecisionDone(action);
+    setShowOverrideConfirm(false);
+    setShowRejectDialog(false);
     setDeciding(false);
     setShowQuiz(true);
     // Eagerly load the quiz question for this vuln class
@@ -211,7 +281,10 @@ function FindingDetailPage() {
     setLoadingTier(false);
   }
 
-  async function handleRegenerateAi(apiKeyToUse?: string) {
+  async function handleRegenerateAi(
+    apiKeyToUse?: string,
+    feedbackContext?: { previousDiff?: string | undefined; rejectionNote?: string | undefined },
+  ) {
     if (!finding || !user) return;
     const key = (
       apiKeyToUse ||
@@ -333,7 +406,7 @@ function FindingDetailPage() {
         if (newExp) explanationId = newExp.id;
       }
 
-      // 4. Generate patch using real data
+      // 4. Generate patch using real data (with optional rejection feedback)
       const baseFinding: {
         id?: string;
         file_path: string;
@@ -350,7 +423,14 @@ function FindingDetailPage() {
       if (finding.line_start !== undefined) baseFinding.line_start = finding.line_start;
       if (Array.isArray(finding.code_lines)) baseFinding.code_lines = finding.code_lines as any;
 
-      const patch = await generatePatch(baseFinding, fileContent, key, backupKey, user.id);
+      const patch = await generatePatch(
+        baseFinding,
+        fileContent,
+        key,
+        backupKey,
+        user.id,
+        feedbackContext,
+      );
 
       // 5. Deterministic patch validation
       const valFinding: typeof baseFinding & { rule_id?: string; source?: string } = {
@@ -403,6 +483,14 @@ function FindingDetailPage() {
 
       await supabase.from("findings").update({ status: "patched" }).eq("id", finding.id);
 
+      // If we regenerated after rejection, reset decision state to allow reviewing the new patch
+      if (feedbackContext?.previousDiff || feedbackContext?.rejectionNote) {
+        setDecisionDone(null);
+        setExistingDecision(null);
+        setRejectionNote("");
+        setShowRejectDialog(false);
+      }
+
       // Reload finding data in place
       await fetchData();
     } catch (err: any) {
@@ -413,19 +501,82 @@ function FindingDetailPage() {
     }
   }
 
-  async function dismissFalsePositive() {
+  async function handleConfirmDismiss() {
     if (!finding || !user) return;
+    if (dismissReasonCode === "other" && !dismissReasonText.trim()) {
+      return;
+    }
     setDeciding(true);
 
-    await supabase.from("findings").update({ status: "likely_false_positive" }).eq("id", findingId);
+    const { data: supp } = await supabase
+      .from("false_positive_suppressions")
+      .insert({
+        user_id: user.id,
+        project_id: finding.project_id,
+        finding_id: finding.id,
+        rule_id: finding.rule_id || null,
+        file_path: finding.file_path,
+        line_start: finding.line_start ?? null,
+        vulnerability_class: finding.vulnerability_class ?? null,
+        reason_code: dismissReasonCode,
+        reason_text: dismissReasonText.trim() || null,
+      })
+      .select("*")
+      .single();
+
+    if (supp) {
+      setSuppression(supp as DbFalsePositiveSuppression);
+    }
+
+    await supabase.from("findings").update({ status: "dismissed" }).eq("id", findingId);
 
     // Recompute score so false-positive findings stop penalizing the score
     if (finding.project_id) {
       await recomputeScore(finding.project_id, user.id);
     }
 
-    setFinding((prev) => (prev ? { ...prev, status: "likely_false_positive" } : null));
+    setFinding((prev) => (prev ? { ...prev, status: "dismissed" } : null));
+    setShowDismissDialog(false);
     setDeciding(false);
+  }
+
+  function downloadPatchFile() {
+    if (!finding?.patch?.diff) return;
+    const cleanPath = (finding.file_path || "remediation").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const fileName = `${cleanPath}.patch`;
+    const diff = finding.patch.diff;
+    const header = `# SecureLoop Remediation Patch
+# Target-File: ${finding.file_path}
+# Target-Commit: ${commitSha || "HEAD"}
+# Generated-At: ${finding.patch.generated_at || new Date().toISOString()}
+# Validation-Status: ${finding.patch.validation_verdict || "unvalidated"}
+# Accepted-By: ${user?.email || user?.id || "developer"}
+# Override: ${existingDecision?.is_override ? "true (validation rejected)" : "false"}
+#
+# Apply with:
+#   git apply ${fileName}
+#   or: patch -p1 < ${fileName}
+`;
+    const fileContent =
+      diff.startsWith("---") || diff.startsWith("@@")
+        ? `${header}\n${diff}`
+        : `${header}\n--- a/${finding.file_path}\n+++ b/${finding.file_path}\n${diff}`;
+    const blob = new Blob([fileContent], { type: "text/x-diff;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyDiffToClipboard() {
+    if (!finding?.patch?.diff) return;
+    await navigator.clipboard.writeText(finding.patch.diff);
+    setCopiedDiff(true);
+    setTimeout(() => setCopiedDiff(false), 2000);
   }
 
   async function submitQuizAnswer() {
@@ -471,6 +622,21 @@ function FindingDetailPage() {
   const validation = finding?.patch;
   const canAccept =
     validation?.validation_verdict === "accepted" || validation?.validation_vulnerability_gone;
+
+  const displayStatus =
+    finding?.status === "accepted"
+      ? "accepted"
+      : finding?.status === "rejected"
+        ? "rejected"
+        : finding?.status === "dismissed"
+          ? "dismissed"
+          : finding?.status === "likely_false_positive"
+            ? "likely_false_positive"
+            : finding?.patch?.validation_verdict === "rejected"
+              ? "validation_rejected"
+              : finding?.patch?.validation_verdict === "accepted"
+                ? "validated"
+                : (finding?.status ?? "open");
 
   // Use activeQuestion from the tiered quiz bank (loaded after decision)
   // Fall back to null if vuln class has no questions
@@ -524,10 +690,20 @@ function FindingDetailPage() {
         {/* Finding header */}
         <div className="flex flex-wrap items-start gap-2.5 sm:gap-3">
           <SeverityBadge severity={finding.severity} />
-          <StatusBadge status={finding.status as any} />
+          <StatusBadge status={displayStatus} />
           <span className="font-mono text-xs text-subtle">{finding.cwe}</span>
           <span className="font-mono text-xs text-subtle uppercase">{finding.tool}</span>
         </div>
+
+        {/* Heuristic warning if finding came from LLM pass */}
+        {(finding.tool === "gemini-llm-heuristic" ||
+          (finding as any).source === "llm-heuristic" ||
+          (finding as any).source_type === "llm-heuristic") && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 font-mono text-xs text-amber-300">
+            <AlertCircle className="size-4 shrink-0 text-amber-400" />
+            <span>no deterministic rule, validation is limited</span>
+          </div>
+        )}
         <h1 className="mt-3 font-display text-lg sm:text-xl font-semibold tracking-tight break-all">
           {finding.file_path}
           {finding.line_start && <span className="text-subtle">:{finding.line_start}</span>}
@@ -677,7 +853,7 @@ function FindingDetailPage() {
                 </p>
                 {finding.status !== "dismissed" ? (
                   <button
-                    onClick={dismissFalsePositive}
+                    onClick={() => setShowDismissDialog(true)}
                     disabled={deciding}
                     className="mt-2 inline-flex items-center gap-2 rounded-full border border-warning/40 bg-warning/20 px-4 py-1.5 font-mono text-xs font-medium text-warning hover:bg-warning/30 transition-colors cursor-pointer"
                   >
@@ -943,61 +1119,336 @@ function FindingDetailPage() {
           </div>
         )}
 
-        {/* Accept / Reject / Dismiss */}
-        {finding.patch && !decisionDone && finding.status !== "dismissed" && (
-          <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
-            {canAccept ? (
-              <button
-                onClick={() => makeDecision("accept")}
-                disabled={deciding}
-                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-success/40 bg-success/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-success disabled:opacity-50"
-              >
-                <CheckCircle2 className="size-3.5" />
-                accept patch
-              </button>
-            ) : (
+        {/* Decision Forms: Override Confirmation */}
+        {showOverrideConfirm && (
+          <div className="mt-6 rounded-lg border border-warning/40 bg-warning/10 p-5 font-mono text-xs space-y-3">
+            <div className="flex items-center gap-2 font-semibold text-sm text-warning">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>Confirm Patch Override</span>
+            </div>
+            <p className="text-foreground/90 leading-relaxed text-xs">
+              The automatic validation rejected this patch (e.g. syntax check failed, original
+              vulnerability still detected, or new issues introduced). Are you sure you want to
+              override the automated checks and accept this patch for manual developer review?
+            </p>
+            <div className="flex items-center gap-3 pt-1">
               <button
                 onClick={() => makeDecision("accept", true)}
                 disabled={deciding}
-                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-warning disabled:opacity-50"
+                className="pill-hover rounded-full border border-warning/60 bg-warning/20 px-4 py-2 font-mono text-xs font-semibold text-warning hover:bg-warning/30 transition-colors cursor-pointer disabled:opacity-50"
               >
-                <AlertCircle className="size-3.5" />
-                override & accept
+                confirm override & accept
               </button>
-            )}
-            <button
-              onClick={() => makeDecision("reject")}
-              disabled={deciding}
-              className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-danger disabled:opacity-50"
-            >
-              <XCircle className="size-3.5" />
-              reject
-            </button>
-            <button
-              onClick={dismissFalsePositive}
-              disabled={deciding}
-              className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-elevated px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-subtle hover:text-foreground disabled:opacity-50"
-            >
-              <XCircle className="size-3.5 text-warning" />
-              dismiss false positive
-            </button>
+              <button
+                onClick={() => setShowOverrideConfirm(false)}
+                className="rounded-full border border-border px-3.5 py-2 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
+              >
+                cancel
+              </button>
+            </div>
           </div>
         )}
 
-        {decisionDone && !showQuiz && (
-          <div
-            className={`mt-6 inline-flex items-center gap-2 rounded-full border px-4 py-2 font-mono text-xs font-medium ${
-              decisionDone === "accept"
-                ? "border-success/40 text-success"
-                : "border-danger/40 text-danger"
-            }`}
-          >
-            {decisionDone === "accept" ? (
-              <CheckCircle2 className="size-3.5" />
-            ) : (
-              <XCircle className="size-3.5" />
+        {/* Decision Forms: Rejection Note Form */}
+        {showRejectDialog && (
+          <div className="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-5 font-mono text-xs space-y-3">
+            <div className="flex items-center gap-2 font-semibold text-sm text-danger">
+              <XCircle className="size-4 shrink-0" />
+              <span>Reject Proposed Patch</span>
+            </div>
+            <p className="text-subtle text-[11px] leading-relaxed">
+              Provide an optional developer note explaining why this patch is being rejected. This
+              note will be recorded and can be fed back to generate an alternative remediation
+              attempt.
+            </p>
+            <textarea
+              value={rejectionNote}
+              onChange={(e) => setRejectionNote(e.target.value)}
+              placeholder="e.g. Breaks backward compatibility with existing API; use parameterized query via pool.query(sql, [params]) instead..."
+              rows={3}
+              className="w-full rounded border border-border bg-background p-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+            />
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={() => makeDecision("reject", false, rejectionNote)}
+                disabled={deciding}
+                className="pill-hover rounded-full border border-danger/60 bg-danger/20 px-4 py-2 font-mono text-xs font-semibold text-danger hover:bg-danger/30 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                confirm rejection
+              </button>
+              <button
+                onClick={() => setShowRejectDialog(false)}
+                className="rounded-full border border-border px-3.5 py-2 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
+              >
+                cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Decision Forms: Dismiss False Positive Form */}
+        {showDismissDialog && (
+          <div className="mt-6 rounded-lg border border-border bg-elevated p-5 font-mono text-xs space-y-4">
+            <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
+              <AlertCircle className="size-4 shrink-0 text-warning" />
+              <span>Dismiss Finding as False Positive</span>
+            </div>
+            <p className="text-subtle text-[11px] leading-relaxed">
+              Dismissing suppresses this finding for your project and commit lineage, preventing it
+              from blocking future scans and tracking it accurately in false-positive metrics.
+            </p>
+            <div>
+              <label className="block text-[11px] uppercase tracking-wider text-subtle mb-1.5">
+                Reason category:
+              </label>
+              <select
+                value={dismissReasonCode}
+                onChange={(e) => setDismissReasonCode(e.target.value)}
+                className="w-full rounded border border-border bg-background px-3 py-2 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none cursor-pointer"
+              >
+                <option value="test_code">Test / benchmark / mock code (not production)</option>
+                <option value="not_exploitable">
+                  Not exploitable in this architecture / context
+                </option>
+                <option value="accepted_risk">
+                  Accepted business risk / mitigated by external controls
+                </option>
+                <option value="wrong_detection">False detection / scanner rule mismatch</option>
+                <option value="other">Other reason (requires explanation below)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] uppercase tracking-wider text-subtle mb-1.5">
+                Explanation / developer notes{" "}
+                {dismissReasonCode === "other" && <span className="text-danger">*</span>}:
+              </label>
+              <textarea
+                value={dismissReasonText}
+                onChange={(e) => setDismissReasonText(e.target.value)}
+                placeholder={
+                  dismissReasonCode === "other"
+                    ? "Detailed explanation of why this detection is a false positive..."
+                    : "Optional context or notes regarding this dismissal..."
+                }
+                rows={2}
+                className="w-full rounded border border-border bg-background p-2.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={handleConfirmDismiss}
+                disabled={deciding || (dismissReasonCode === "other" && !dismissReasonText.trim())}
+                className="pill-hover rounded-full border border-warning/60 bg-warning/20 px-4 py-2 font-mono text-xs font-semibold text-warning hover:bg-warning/30 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                confirm dismissal
+              </button>
+              <button
+                onClick={() => setShowDismissDialog(false)}
+                className="rounded-full border border-border px-3.5 py-2 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
+              >
+                cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Accept / Reject / Dismiss Action Buttons */}
+        {finding.patch &&
+          !decisionDone &&
+          finding.status !== "dismissed" &&
+          !showOverrideConfirm &&
+          !showRejectDialog &&
+          !showDismissDialog && (
+            <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
+              {canAccept ? (
+                <button
+                  onClick={() => makeDecision("accept")}
+                  disabled={deciding}
+                  className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-success/40 bg-success/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-success disabled:opacity-50"
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  accept patch
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowOverrideConfirm(true)}
+                  disabled={deciding}
+                  className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-warning disabled:opacity-50"
+                >
+                  <AlertCircle className="size-3.5" />
+                  override & accept
+                </button>
+              )}
+              <button
+                onClick={() => setShowRejectDialog(true)}
+                disabled={deciding}
+                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-danger disabled:opacity-50"
+              >
+                <XCircle className="size-3.5" />
+                reject
+              </button>
+              <button
+                onClick={() => setShowDismissDialog(true)}
+                disabled={deciding}
+                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-elevated px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-subtle hover:text-foreground disabled:opacity-50"
+              >
+                <XCircle className="size-3.5 text-warning" />
+                dismiss false positive
+              </button>
+            </div>
+          )}
+
+        {/* Decision Result: Accepted State */}
+        {decisionDone === "accept" && (
+          <div className="mt-6 rounded-lg border border-success/30 bg-success/5 p-4 sm:p-5 font-mono text-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-success font-semibold text-sm">
+                <CheckCircle2 className="size-4 shrink-0" />
+                <span>
+                  {existingDecision?.is_override
+                    ? "Patch Accepted via Developer Override"
+                    : "Patch Validated & Accepted"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={downloadPatchFile}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-success/40 bg-success/15 px-3.5 py-1.5 font-mono text-[11px] text-success hover:bg-success/25 transition-colors cursor-pointer"
+                >
+                  <Download className="size-3.5" />
+                  download .patch file
+                </button>
+                <button
+                  onClick={copyDiffToClipboard}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3.5 py-1.5 font-mono text-[11px] text-foreground hover:bg-elevated transition-colors cursor-pointer"
+                >
+                  {copiedDiff ? (
+                    <Check className="size-3.5 text-success" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copiedDiff ? "copied diff!" : "copy diff"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded border border-border/80 bg-background/60 p-3 text-[11px] text-subtle space-y-1">
+              <p className="text-warning/90 font-medium">
+                {existingDecision?.is_override
+                  ? "⚠ Note: The automatic validation had rejected this patch. It has NOT been applied to your git repository."
+                  : "ⓘ Note: This patch has NOT been applied directly to your git repository."}
+              </p>
+              <p className="text-foreground/80">
+                Apply manually using{" "}
+                <code className="text-accent bg-accent/10 px-1 py-0.5 rounded font-mono">
+                  git apply &lt;file&gt;.patch
+                </code>{" "}
+                or create a pull request.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-subtle border-t border-border/60 pt-3">
+              <div>
+                <span className="text-subtle/70">Target file:</span>{" "}
+                <span className="text-foreground">{finding.file_path}</span>
+              </div>
+              <div>
+                <span className="text-subtle/70">Target commit:</span>{" "}
+                <span className="text-foreground font-mono">
+                  {commitSha ? commitSha.slice(0, 8) : "HEAD"}
+                </span>
+              </div>
+              <div>
+                <span className="text-subtle/70">Accepted by:</span>{" "}
+                <span className="text-foreground">{user?.email || user?.id}</span>
+              </div>
+              <div>
+                <span className="text-subtle/70">Validation record:</span>{" "}
+                <span className={existingDecision?.is_override ? "text-warning" : "text-success"}>
+                  {existingDecision?.is_override
+                    ? "Rejected by validation (Overridden)"
+                    : "Passed validation"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Decision Result: Rejected State with Regenerate Offer */}
+        {decisionDone === "reject" && (
+          <div className="mt-6 rounded-lg border border-danger/30 bg-danger/5 p-4 sm:p-5 font-mono text-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-danger font-semibold text-sm">
+                <XCircle className="size-4 shrink-0" />
+                <span>Patch Rejected by Developer</span>
+              </div>
+              <button
+                onClick={() =>
+                  handleRegenerateAi(undefined, {
+                    previousDiff: finding.patch?.diff,
+                    rejectionNote: existingDecision?.rejection_note || rejectionNote,
+                  })
+                }
+                disabled={regenerating}
+                className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-4 py-1.5 font-mono text-xs font-medium text-accent hover:bg-accent/25 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <Sparkles className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} />
+                {regenerating ? "generating alternative fix…" : "generate another patch"}
+              </button>
+            </div>
+
+            {(existingDecision?.rejection_note || rejectionNote) && (
+              <div className="rounded border border-border/80 bg-background/60 p-3 text-[11px] space-y-1">
+                <span className="text-subtle block uppercase tracking-wider text-[10px]">
+                  Developer rejection note:
+                </span>
+                <p className="text-foreground/90 italic">
+                  "{existingDecision?.rejection_note || rejectionNote}"
+                </p>
+              </div>
             )}
-            {decisionDone === "accept" ? "patch accepted" : "patch rejected"}
+
+            <p className="text-[11px] text-subtle">
+              Clicking "generate another patch" sends this rejected diff and your feedback to the AI
+              to produce an alternative remediation.
+            </p>
+          </div>
+        )}
+
+        {/* Suppressed Finding State */}
+        {finding.status === "dismissed" && (
+          <div className="mt-6 rounded-lg border border-border bg-elevated p-4 sm:p-5 font-mono text-xs space-y-2">
+            <div className="flex items-center gap-2 text-warning font-medium">
+              <CheckCircle2 className="size-4 text-warning" />
+              <span>Finding Dismissed & Suppressed as False Positive</span>
+            </div>
+            {suppression && (
+              <div className="text-[11px] text-subtle space-y-1 pt-1">
+                <div>
+                  <span className="text-subtle/70">Reason:</span>{" "}
+                  <span className="text-foreground">
+                    {suppression.reason_code === "test_code"
+                      ? "Test / benchmark / mock code (not production)"
+                      : suppression.reason_code === "not_exploitable"
+                        ? "Not exploitable in this architecture / context"
+                        : suppression.reason_code === "accepted_risk"
+                          ? "Accepted business risk / mitigated by external controls"
+                          : suppression.reason_code === "wrong_detection"
+                            ? "False detection / rule mismatch"
+                            : suppression.reason_code}
+                  </span>
+                </div>
+                {suppression.reason_text && (
+                  <div>
+                    <span className="text-subtle/70">Note:</span>{" "}
+                    <span className="text-foreground italic">"{suppression.reason_text}"</span>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-[10px] text-subtle/60 pt-1">
+              This finding will be suppressed on future scans of this project commit lineage.
+            </p>
           </div>
         )}
 

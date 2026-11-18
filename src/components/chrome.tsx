@@ -43,7 +43,10 @@ export function Pill({
     >
       {dot && (
         <span
-          className={cn("size-1.5 shrink-0 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            variant === "solid" ? "bg-accent" : "bg-subtle",
+          )}
         />
       )}
       {children}
@@ -80,7 +83,10 @@ export function PillLink({
     >
       {dot && (
         <span
-          className={cn("size-1.5 shrink-0 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            variant === "solid" ? "bg-accent" : "bg-subtle",
+          )}
         />
       )}
       {children}
@@ -118,7 +124,12 @@ export function TerminalWindow({
         </span>
         <span className="w-6 sm:w-14 shrink-0" />
       </div>
-      <div className={cn("overflow-x-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs leading-relaxed", bodyClassName)}>
+      <div
+        className={cn(
+          "overflow-x-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs leading-relaxed",
+          bodyClassName,
+        )}
+      >
         {children}
       </div>
     </div>
@@ -155,20 +166,22 @@ const statusStyles: Record<FindingStatus, string> = {
   validated: "border-success/40 text-success",
   accepted: "border-success/40 text-success",
   rejected: "border-danger/40 text-danger",
+  validation_rejected: "border-danger/40 text-danger",
   likely_false_positive: "border-warning/40 text-warning",
   dismissed: "border-border text-subtle/50",
 };
 
-export function StatusBadge({ status }: { status: FindingStatus }) {
+export function StatusBadge({ status }: { status: FindingStatus | string }) {
+  const label = status === "validation_rejected" ? "validation rejected" : status;
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 sm:px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] uppercase tracking-wider",
-        statusStyles[status],
+        statusStyles[status as FindingStatus] || "border-border text-subtle",
       )}
     >
       <span className="size-1 rounded-full bg-current" />
-      {status}
+      {label}
     </span>
   );
 }
