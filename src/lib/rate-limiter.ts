@@ -37,6 +37,18 @@ export const PROVIDER_LIMITS: Record<DetectedProvider, RateLimitConfig> = {
     baseBackoffMs: 2000,
     maxRetries: 3,
   },
+  freellmapi: {
+    requestsPerMinute: 25,
+    minIntervalMs: 2400,
+    baseBackoffMs: 1500,
+    maxRetries: 3,
+  },
+  custom_openai: {
+    requestsPerMinute: 25,
+    minIntervalMs: 2400,
+    baseBackoffMs: 1500,
+    maxRetries: 3,
+  },
   openai: {
     requestsPerMinute: 15,
     minIntervalMs: 4000,

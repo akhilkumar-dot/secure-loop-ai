@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Play, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Play, AlertTriangle, RefreshCw, ShieldAlert, Check } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { Logo, TerminalWindow } from "@/components/chrome";
@@ -15,8 +15,17 @@ import { fetchRepoFiles, buildFileMap } from "@/lib/github";
 import { runSast } from "@/lib/sast";
 import { recomputeScore } from "@/lib/score";
 import type { SastFinding } from "@/lib/sast";
-import { detectProvider, PROVIDER_INFOS } from "@/lib/ai-provider-detector";
+import {
+  detectProvider,
+  validateEndpointUrl,
+  formatKeyHint,
+  redactKeys,
+  PROVIDER_INFOS,
+  type DetectedProvider,
+} from "@/lib/ai-provider-detector";
 import { isSameProviderBackup } from "@/lib/rate-limiter";
+import { fetchCustomEndpointModels } from "@/lib/custom-openai";
+import { preflightCheckProvider } from "@/lib/preflight-checker";
 
 function isIgnoredPathOrLiteral(filePath: string, matchedText?: string): boolean {
   if (!filePath) return false;
@@ -70,6 +79,17 @@ interface LogLine {
   tone?: "ok" | "err" | "warn" | "dim";
 }
 
+const PROVIDER_OPTIONS: Array<{ value: "auto" | DetectedProvider; label: string }> = [
+  { value: "auto", label: "Auto-detect from key format" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "groq", label: "Groq" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "openai", label: "OpenAI" },
+  { value: "cohere", label: "Cohere" },
+  { value: "freellmapi", label: "FreeLLMAPI" },
+  { value: "custom_openai", label: "Custom OpenAI-compatible endpoint" },
+];
+
 function ScanPage() {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
@@ -92,6 +112,30 @@ function ScanPage() {
   const [backupApiKey, setBackupApiKey] = useState<string>(() => {
     return sessionStorage.getItem("sl_ai_backup_key") ?? "";
   });
+  const [primaryProviderChoice, setPrimaryProviderChoice] = useState<"auto" | DetectedProvider>(
+    () => {
+      return (
+        (sessionStorage.getItem("sl_ai_provider_choice") as "auto" | DetectedProvider) ?? "auto"
+      );
+    },
+  );
+  const [backupProviderChoice, setBackupProviderChoice] = useState<"auto" | DetectedProvider>(
+    () => {
+      return (
+        (sessionStorage.getItem("sl_ai_backup_provider_choice") as "auto" | DetectedProvider) ??
+        "auto"
+      );
+    },
+  );
+  const [customBaseUrl, setCustomBaseUrl] = useState<string>(() => {
+    return sessionStorage.getItem("sl_ai_custom_url") ?? "http://localhost:3001/v1";
+  });
+  const [customModel, setCustomModel] = useState<string>(() => {
+    return sessionStorage.getItem("sl_ai_custom_model") ?? "freellmapi/auto";
+  });
+  const [customModels, setCustomModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
@@ -142,6 +186,23 @@ function ScanPage() {
     ]);
   }
 
+  async function handleFetchCustomModels() {
+    setLoadingModels(true);
+    setModelsError(null);
+    try {
+      const models = await fetchCustomEndpointModels(customBaseUrl, aiApiKey);
+      setCustomModels(models);
+      if (models.length > 0 && !models.includes(customModel)) {
+        setCustomModel(models[0]!);
+        sessionStorage.setItem("sl_ai_custom_model", models[0]!);
+      }
+    } catch (err: any) {
+      setModelsError(err?.message || "Failed to fetch models from endpoint.");
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
   async function startScan() {
     if (!user || !project) return;
     const effectiveKey = aiApiKey.trim();
@@ -150,6 +211,33 @@ function ScanPage() {
       setError("AI API key is required. Enter it in the Pipeline Configuration above.");
       return;
     }
+
+    const detectedPrimary = detectProvider(
+      effectiveKey,
+      primaryProviderChoice !== "auto" ? primaryProviderChoice : undefined,
+    );
+    if (detectedPrimary === "unknown") {
+      setError("Key format not recognized. Choose the provider manually from the dropdown.");
+      return;
+    }
+
+    const detectedBackup = detectProvider(
+      effectiveBackupKey,
+      backupProviderChoice !== "auto" ? backupProviderChoice : undefined,
+    );
+    if (
+      detectedPrimary === "freellmapi" ||
+      detectedPrimary === "custom_openai" ||
+      detectedBackup === "freellmapi" ||
+      detectedBackup === "custom_openai"
+    ) {
+      const urlCheck = validateEndpointUrl(customBaseUrl);
+      if (!urlCheck.isValid) {
+        setError(urlCheck.error || "Invalid endpoint Base URL.");
+        return;
+      }
+    }
+
     if (!project.repo_url) {
       setError("This project has no GitHub URL. Please add one in the dashboard.");
       return;
@@ -282,6 +370,60 @@ function ScanPage() {
       ),
     );
 
+    // ── Pre-flight Key Check ──────────────────────────────────────────────────
+    addLog(`▸ pre-flight: authenticating ${providerLabel}…`, "dim");
+    const preflight = await preflightCheckProvider(effectiveKey, {
+      explicitProvider: primaryProviderChoice !== "auto" ? primaryProviderChoice : undefined,
+      baseUrl: customBaseUrl,
+    });
+
+    if (!preflight.ok) {
+      if (preflight.isAuthError) {
+        addLog(`✖ ${preflight.errorMessage}`, "err");
+        if (effectiveBackupKey) {
+          const backupDetected = detectProvider(
+            effectiveBackupKey,
+            backupProviderChoice !== "auto" ? backupProviderChoice : undefined,
+          );
+          const backupLabel = PROVIDER_INFOS[backupDetected]?.name ?? "Backup Provider";
+          addLog(`▸ primary key rejected; testing backup provider (${backupLabel})…`, "warn");
+          const backupPreflight = await preflightCheckProvider(effectiveBackupKey, {
+            explicitProvider: backupProviderChoice !== "auto" ? backupProviderChoice : undefined,
+            baseUrl: customBaseUrl,
+          });
+
+          if (backupPreflight.ok) {
+            addLog(
+              `✓ backup provider (${backupLabel}) authenticated successfully. Switched to backup key.`,
+              "ok",
+            );
+            effectiveKey = effectiveBackupKey;
+            effectiveBackupKey = "";
+          } else {
+            const fullErr = `${preflight.errorMessage} Backup key also failed: ${backupPreflight.errorMessage}`;
+            addLog(`✖ ${fullErr}`, "err");
+            setError(fullErr);
+            await updateScanStatus(scanRun.id, "failed");
+            setScanning(false);
+            return;
+          }
+        } else {
+          setError(preflight.errorMessage || "API key rejected.");
+          await updateScanStatus(scanRun.id, "failed");
+          setScanning(false);
+          return;
+        }
+      } else {
+        setError(preflight.errorMessage || "Pre-flight check failed.");
+        addLog(`✖ ${preflight.errorMessage}`, "err");
+        await updateScanStatus(scanRun.id, "failed");
+        setScanning(false);
+        return;
+      }
+    } else {
+      addLog(`  ✓ ${providerLabel} authenticated (${preflight.keyHint})`, "ok");
+    }
+
     // ── 3b. LLM secondary pass (heuristic — for logic bugs SAST can't catch) ─
     addLog(`▸ ${providerLabel}: heuristic secondary pass (logic/access-control bugs)…`, "warn");
 
@@ -290,17 +432,37 @@ function ScanPage() {
     const batches: Array<typeof files> = [];
     for (let i = 0; i < files.length; i += 6) batches.push(files.slice(i, i + 6));
 
-    for (let b = 0; b < batches.length; b++) {
-      addLog(`  llm batch ${b + 1}/${batches.length}: ${batches[b]!.length} files…`, "dim");
-      const raw = await analyzeCodeForVulnerabilities(batches[b]!, effectiveKey);
-      // Only keep LLM findings NOT already covered by a SAST rule at the same file+line
-      const novel = raw.filter(
-        (lf) =>
-          !sastFindings.some(
-            (sf) => sf.file_path === lf.file_path && Math.abs(sf.line_start - lf.line_start) <= 3,
-          ),
-      );
-      llmFindings.push(...novel.map((f) => ({ ...f, source: "llm-heuristic" })));
+    try {
+      for (let b = 0; b < batches.length; b++) {
+        addLog(`  llm batch ${b + 1}/${batches.length}: ${batches[b]!.length} files…`, "dim");
+        const raw = await analyzeCodeForVulnerabilities(batches[b]!, effectiveKey);
+        // Only keep LLM findings NOT already covered by a SAST rule at the same file+line
+        const novel = raw.filter(
+          (lf) =>
+            !sastFindings.some(
+              (sf) => sf.file_path === lf.file_path && Math.abs(sf.line_start - lf.line_start) <= 3,
+            ),
+        );
+        llmFindings.push(...novel.map((f) => ({ ...f, source: "llm-heuristic" })));
+      }
+    } catch (err: any) {
+      const errorMsg = redactKeys(err?.message || String(err), [effectiveKey, effectiveBackupKey]);
+      const isAuthErr =
+        err?.status === 401 ||
+        err?.status === 403 ||
+        err?.isAuthRejected ||
+        errorMsg.includes("rejected your API key") ||
+        errorMsg.includes("HTTP 401") ||
+        errorMsg.includes("HTTP 403");
+
+      if (isAuthErr) {
+        addLog(`✖ Authentication error: ${errorMsg}`, "err");
+        setError(errorMsg);
+        await updateScanStatus(scanRun.id, "failed");
+        setScanning(false);
+        return;
+      }
+      addLog(`  ✖ llm heuristic pass error: ${errorMsg}`, "err");
     }
 
     addLog(
@@ -463,10 +625,27 @@ function ScanPage() {
           addLog(`  ✓ explained: ${f.file_path}:${f.line_start ?? 1}`, "ok");
         }
       } catch (err: any) {
-        addLog(
-          `  ✖ explanation error (${f.file_path}:${f.line_start ?? 1}): ${err?.message || String(err)}`,
-          "err",
-        );
+        const errorMsg = redactKeys(err?.message || String(err), [
+          effectiveKey,
+          effectiveBackupKey,
+        ]);
+        const isAuthErr =
+          err?.status === 401 ||
+          err?.status === 403 ||
+          err?.isAuthRejected ||
+          errorMsg.includes("rejected your API key") ||
+          errorMsg.includes("HTTP 401") ||
+          errorMsg.includes("HTTP 403");
+
+        if (isAuthErr) {
+          addLog(`✖ Authentication error: ${errorMsg}`, "err");
+          setError(errorMsg);
+          await updateScanStatus(scanRun.id, "failed");
+          setScanning(false);
+          return;
+        }
+
+        addLog(`  ✖ explanation error (${f.file_path}:${f.line_start ?? 1}): ${errorMsg}`, "err");
       }
     }
 
@@ -517,10 +696,27 @@ function ScanPage() {
         await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
         addLog(`  ✓ patch generated: ${f.file_path}:${f.line_start ?? 1}`, "ok");
       } catch (err: any) {
-        addLog(
-          `  ✖ patch error (${f.file_path}:${f.line_start ?? 1}): ${err?.message || String(err)}`,
-          "err",
-        );
+        const errorMsg = redactKeys(err?.message || String(err), [
+          effectiveKey,
+          effectiveBackupKey,
+        ]);
+        const isAuthErr =
+          err?.status === 401 ||
+          err?.status === 403 ||
+          err?.isAuthRejected ||
+          errorMsg.includes("rejected your API key") ||
+          errorMsg.includes("HTTP 401") ||
+          errorMsg.includes("HTTP 403");
+
+        if (isAuthErr) {
+          addLog(`✖ Authentication error: ${errorMsg}`, "err");
+          setError(errorMsg);
+          await updateScanStatus(scanRun.id, "failed");
+          setScanning(false);
+          return;
+        }
+
+        addLog(`  ✖ patch error (${f.file_path}:${f.line_start ?? 1}): ${errorMsg}`, "err");
       }
     }
 
@@ -694,8 +890,19 @@ function ScanPage() {
     );
   }
 
-  const primaryProvider = detectProvider(aiApiKey);
-  const backupProvider = detectProvider(backupApiKey);
+  const primaryProvider = detectProvider(
+    aiApiKey,
+    primaryProviderChoice !== "auto" ? primaryProviderChoice : undefined,
+  );
+  const backupProvider = detectProvider(
+    backupApiKey,
+    backupProviderChoice !== "auto" ? backupProviderChoice : undefined,
+  );
+  const isCustomEndpointInUse =
+    primaryProvider === "freellmapi" ||
+    primaryProvider === "custom_openai" ||
+    backupProvider === "freellmapi" ||
+    backupProvider === "custom_openai";
 
   return (
     <div className="min-h-screen bg-background">
@@ -723,16 +930,22 @@ function ScanPage() {
 
         {/* API keys inline config (only before scanning) */}
         {!scanning && !done && (
-          <div className="mt-6 rounded-lg border border-border bg-elevated p-4 space-y-3">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-              pipeline configuration
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <div className="mb-1 flex items-center justify-between">
+          <div className="mt-6 rounded-lg border border-border bg-elevated p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                pipeline configuration
+              </p>
+              <span className="font-mono text-[10px] text-subtle/70">
+                keys stay in browser sessionStorage only
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* Primary Key & Provider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <label className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-                    AI API Key{" "}
-                    <span className="text-subtle/50">(Gemini / Groq / OpenRouter / OpenAI)</span>
+                    Primary Provider
                   </label>
                   {aiApiKey && primaryProvider !== "unknown" && (
                     <span className="rounded bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-accent">
@@ -740,52 +953,65 @@ function ScanPage() {
                     </span>
                   )}
                 </div>
+                <select
+                  value={primaryProviderChoice}
+                  onChange={(e) => {
+                    const val = e.target.value as "auto" | DetectedProvider;
+                    setPrimaryProviderChoice(val);
+                    sessionStorage.setItem("sl_ai_provider_choice", val);
+                  }}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                >
+                  {PROVIDER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  Primary API Key
+                </label>
                 <input
                   type="password"
                   value={aiApiKey}
                   onChange={(e) => {
-                    setAiApiKey(e.target.value);
-                    if (e.target.value) {
-                      sessionStorage.setItem("sl_ai_key", e.target.value);
+                    const val = e.target.value;
+                    setAiApiKey(val);
+                    if (val) {
+                      sessionStorage.setItem("sl_ai_key", val);
                     } else {
                       sessionStorage.removeItem("sl_ai_key");
                     }
                   }}
-                  placeholder="AQ.…, AIzaSy…, gsk_…, sk-or-…, or sk-…"
+                  placeholder="AQ.…, AIzaSy…, gsk_…, sk-or-…, freellmapi-…, or sk-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
-                {aiApiKey ? (
-                  <p className="mt-1 font-mono text-[10px] text-success/70">
-                    ✓ key remembered for this session
+
+                {aiApiKey && primaryProvider === "unknown" ? (
+                  <div className="rounded border border-danger/30 bg-danger/10 p-2 font-mono text-[10px] text-danger flex items-start gap-1.5">
+                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Key format not recognized. Choose the provider manually from the dropdown
+                      above.
+                    </span>
+                  </div>
+                ) : aiApiKey ? (
+                  <p className="font-mono text-[10px] text-success/80">
+                    ✓ key remembered for this session ({PROVIDER_INFOS[primaryProvider]?.name})
                   </p>
                 ) : (
-                  <p className="mt-1 font-mono text-[10px] text-danger/70">
-                    ✗ required — paste your{" "}
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline text-accent/70 hover:text-accent"
-                    >
-                      Gemini
-                    </a>
-                    ,{" "}
-                    <a
-                      href="https://console.groq.com/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline text-accent/70 hover:text-accent"
-                    >
-                      Groq
-                    </a>
-                    , or OpenRouter key above
+                  <p className="font-mono text-[10px] text-danger/80">
+                    ✗ required — paste your Gemini, Groq, OpenRouter, or FreeLLMAPI key
                   </p>
                 )}
               </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
+
+              {/* Backup Key & Provider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <label className="font-mono text-[10px] uppercase tracking-wider text-subtle">
-                    Backup AI Key <span className="text-subtle/50">(optional failover)</span>
+                    Backup Provider <span className="text-subtle/50">(failover)</span>
                   </label>
                   {backupApiKey && backupProvider !== "unknown" && (
                     <span className="rounded bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-accent">
@@ -793,13 +1019,33 @@ function ScanPage() {
                     </span>
                   )}
                 </div>
+                <select
+                  value={backupProviderChoice}
+                  onChange={(e) => {
+                    const val = e.target.value as "auto" | DetectedProvider;
+                    setBackupProviderChoice(val);
+                    sessionStorage.setItem("sl_ai_backup_provider_choice", val);
+                  }}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                >
+                  {PROVIDER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  Backup API Key <span className="text-subtle/50">(optional)</span>
+                </label>
                 <input
                   type="password"
                   value={backupApiKey}
                   onChange={(e) => {
-                    setBackupApiKey(e.target.value);
-                    if (e.target.value) {
-                      sessionStorage.setItem("sl_ai_backup_key", e.target.value);
+                    const val = e.target.value;
+                    setBackupApiKey(val);
+                    if (val) {
+                      sessionStorage.setItem("sl_ai_backup_key", val);
                     } else {
                       sessionStorage.removeItem("sl_ai_backup_key");
                     }
@@ -807,26 +1053,146 @@ function ScanPage() {
                   placeholder="Secondary key (e.g. Groq gsk_… or OpenRouter sk-or-…)"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
-                {backupApiKey && isSameProviderBackup(aiApiKey, backupApiKey) ? (
-                  <p className="mt-1 font-mono text-[10px] text-warning/90 flex items-start gap-1">
-                    <AlertTriangle className="size-3 shrink-0 mt-0.5" />
+
+                {backupApiKey && backupProvider === "unknown" ? (
+                  <div className="rounded border border-danger/30 bg-danger/10 p-2 font-mono text-[10px] text-danger flex items-start gap-1.5">
+                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Backup key format not recognized. Choose the provider manually from the
+                      dropdown.
+                    </span>
+                  </div>
+                ) : backupApiKey && isSameProviderBackup(aiApiKey, backupApiKey) ? (
+                  <div className="rounded border border-warning/30 bg-warning/10 p-2 font-mono text-[10px] text-warning flex items-start gap-1.5">
+                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
                     <span>
                       Backup key is from the same provider ({PROVIDER_INFOS[backupProvider]?.name}).
-                      Quotas may be shared across the same organization. Use a different provider
-                      (e.g. Gemini, Groq, or OpenRouter) for true independent failover.
+                      Rate limits and quotas may be shared across the same organization. Use a
+                      different provider (e.g. Gemini, Groq, OpenRouter) for true independent
+                      failover.
                     </span>
-                  </p>
+                  </div>
                 ) : backupApiKey ? (
-                  <p className="mt-1 font-mono text-[10px] text-success/70">
+                  <p className="font-mono text-[10px] text-success/80">
                     ✓ independent backup key active on rate limit failover
                   </p>
                 ) : (
-                  <p className="mt-1 font-mono text-[10px] text-subtle/50">
+                  <p className="font-mono text-[10px] text-subtle/50">
                     Used automatically if primary key hits 429 quota
                   </p>
                 )}
               </div>
             </div>
+
+            {/* Custom Endpoint Settings (FreeLLMAPI / Custom OpenAI-compatible) */}
+            {isCustomEndpointInUse && (
+              <div className="mt-4 rounded border border-border/80 bg-background/50 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-medium text-foreground">
+                    Custom OpenAI-compatible / FreeLLMAPI Endpoint
+                  </span>
+                  <span className="font-mono text-[9px] text-accent">OpenAI-Compatible</span>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      Endpoint Base URL
+                    </label>
+                    <input
+                      type="text"
+                      value={customBaseUrl}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomBaseUrl(val);
+                        sessionStorage.setItem("sl_ai_custom_url", val);
+                      }}
+                      placeholder="http://localhost:3001/v1"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                    />
+                    {!validateEndpointUrl(customBaseUrl).isValid && (
+                      <p className="mt-1 font-mono text-[10px] text-danger">
+                        {validateEndpointUrl(customBaseUrl).error}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                        Model ID
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleFetchCustomModels}
+                        disabled={loadingModels || !validateEndpointUrl(customBaseUrl).isValid}
+                        className="flex items-center gap-1 font-mono text-[9px] text-accent hover:underline disabled:opacity-50"
+                      >
+                        <RefreshCw className={`size-2.5 ${loadingModels ? "animate-spin" : ""}`} />
+                        {loadingModels ? "fetching…" : "fetch live models"}
+                      </button>
+                    </div>
+
+                    {customModels.length > 0 ? (
+                      <select
+                        value={customModel}
+                        onChange={(e) => {
+                          setCustomModel(e.target.value);
+                          sessionStorage.setItem("sl_ai_custom_model", e.target.value);
+                        }}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                      >
+                        <option value="freellmapi/auto">freellmapi/auto (default)</option>
+                        {customModels
+                          .filter((m) => m !== "freellmapi/auto")
+                          .map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={customModel}
+                        onChange={(e) => {
+                          setCustomModel(e.target.value);
+                          sessionStorage.setItem("sl_ai_custom_model", e.target.value);
+                        }}
+                        placeholder="freellmapi/auto"
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                      />
+                    )}
+
+                    {modelsError && (
+                      <p className="mt-1 font-mono text-[10px] text-danger">{modelsError}</p>
+                    )}
+                  </div>
+                </div>
+
+                {typeof window !== "undefined" &&
+                  window.location.protocol === "https:" &&
+                  customBaseUrl.startsWith("http://") && (
+                    <div className="rounded border border-warning/30 bg-warning/5 p-2 font-mono text-[10px] text-warning/90">
+                      <strong>Browser restriction:</strong> This frontend is loaded over HTTPS. Web
+                      browsers block direct requests from HTTPS pages to unencrypted HTTP endpoints
+                      (Mixed Content). For local endpoints like{" "}
+                      <code>http://localhost:3001/v1</code>, run this app locally (
+                      <code>npm run dev</code>) or expose your local endpoint through an HTTPS
+                      tunnel (e.g. ngrok or Cloudflare tunnel).
+                    </div>
+                  )}
+
+                <div className="rounded border border-accent/20 bg-accent/5 p-2 font-mono text-[10px] text-subtle/80 flex items-start gap-1.5">
+                  <ShieldAlert className="size-3.5 shrink-0 text-accent mt-0.5" />
+                  <span>
+                    Requests go to the endpoint you entered, which routes them to free-tier
+                    providers. Free tiers may use your code to improve their products. Don't scan
+                    private code.
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="mt-2">
               <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
@@ -843,8 +1209,8 @@ function ScanPage() {
 
             <p className="font-mono text-[10px] text-warning/80 flex items-center gap-1.5">
               <AlertTriangle className="size-3 shrink-0" />
-              Note: Free-tier Gemini prompts may be used by Google to improve its products, so don't
-              scan private code with a free key.
+              Note: Free-tier provider prompts may be used to improve AI models. Avoid scanning
+              private confidential code.
             </p>
             <p className="font-mono text-[10px] text-subtle/60 flex items-center gap-1.5">
               <AlertTriangle className="size-3 shrink-0" />

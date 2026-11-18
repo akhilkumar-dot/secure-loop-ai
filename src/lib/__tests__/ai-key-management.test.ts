@@ -11,7 +11,13 @@
  * 7. Key redaction from error messages and URLs
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { detectProvider, redactKeys } from "../ai-provider-detector";
+import {
+  detectProvider,
+  redactKeys,
+  validateEndpointUrl,
+  formatKeyHint,
+} from "../ai-provider-detector";
+import { AuthRejectedError } from "../custom-openai";
 import {
   calculateBackoff,
   executeWithRateLimitAndFallback,
@@ -42,12 +48,55 @@ describe("AI Provider Detection", () => {
 
   it("correctly identifies Cohere keys", () => {
     expect(detectProvider("a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6")).toBe("cohere");
+    expect(detectProvider("a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0")).toBe("cohere");
+  });
+
+  it("correctly identifies FreeLLMAPI keys and rejects them from Cohere", () => {
+    expect(detectProvider("freellmapi-unified-secret-key-12345")).toBe("freellmapi");
+    expect(detectProvider("freellmapi-auto-generated-token")).toBe("freellmapi");
+    expect(detectProvider("freellmapi-unified-secret-key-12345")).not.toBe("cohere");
   });
 
   it("returns unknown for invalid or empty keys", () => {
     expect(detectProvider("")).toBe("unknown");
     expect(detectProvider("   ")).toBe("unknown");
     expect(detectProvider("short")).toBe("unknown");
+    expect(detectProvider("some-random-unknown-token-format")).toBe("unknown");
+  });
+
+  it("honors explicit provider override if specified", () => {
+    expect(detectProvider("some-custom-token", "custom_openai")).toBe("custom_openai");
+    expect(detectProvider("freellmapi-12345", "openrouter")).toBe("openrouter");
+  });
+});
+
+describe("Endpoint URL Validation", () => {
+  it("validates valid http and https URLs", () => {
+    const res1 = validateEndpointUrl("http://localhost:3001/v1");
+    expect(res1.isValid).toBe(true);
+    expect(res1.normalizedUrl).toBe("http://localhost:3001/v1");
+
+    const res2 = validateEndpointUrl("https://api.custom-proxy.internal/v1///");
+    expect(res2.isValid).toBe(true);
+    expect(res2.normalizedUrl).toBe("https://api.custom-proxy.internal/v1");
+  });
+
+  it("rejects non-http/https protocols", () => {
+    const res = validateEndpointUrl("ftp://localhost:3001/v1");
+    expect(res.isValid).toBe(false);
+    expect(res.error).toContain("Unsupported protocol");
+  });
+
+  it("rejects inline credentials in URL", () => {
+    const res = validateEndpointUrl("http://admin:secret@localhost:3001/v1");
+    expect(res.isValid).toBe(false);
+    expect(res.error).toContain("Security restriction: URLs cannot include inline credentials");
+  });
+
+  it("formats key hint safely with at most 4 trailing characters", () => {
+    expect(formatKeyHint("freellmapi-secret-key-9876")).toBe("••••9876");
+    expect(formatKeyHint("short")).toBe("••••hort");
+    expect(formatKeyHint("abc")).toBe("••••");
   });
 });
 

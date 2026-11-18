@@ -19,6 +19,8 @@ import { CohereProvider, CohereProvidersExhaustedError } from "./cohere";
 import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
 import { GeminiProvider, GeminiProviderExhaustedError } from "./gemini-provider";
 import { GroqProvider, GroqProvidersExhaustedError } from "./groq";
+import { CustomOpenAIProvider } from "./custom-openai";
+import { detectProvider, type DetectedProvider } from "./ai-provider-detector";
 import { executeWithRateLimitAndFallback } from "./rate-limiter";
 import { getCachedAiOutput, saveCachedAiOutput } from "./ai-cache";
 import { generateRealExplanation, type ExplanationOutput } from "./explanation-service";
@@ -53,9 +55,22 @@ const MAX_CODE_CHARS = 12_000;
 /** Lines of context above/below the finding line sent for patch generation */
 const PATCH_CONTEXT_LINES = 150;
 
+export type SupportedProvider =
+  | OpenAIProvider
+  | CohereProvider
+  | OpenRouterProvider
+  | GeminiProvider
+  | GroqProvider
+  | CustomOpenAIProvider;
+
 export function getProvider(
   apiKey: string,
-): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider | GroqProvider {
+  customConfig?: {
+    baseUrl?: string;
+    model?: string;
+    explicitProvider?: DetectedProvider;
+  },
+): SupportedProvider {
   const effective = (apiKey || "").trim();
 
   if (!effective) {
@@ -64,33 +79,44 @@ export function getProvider(
     );
   }
 
-  // Gemini API keys start with "AQ." (Google AI Studio) or "AIza" (legacy Google)
-  if (effective.startsWith("AQ.") || effective.startsWith("AIza")) {
-    return new GeminiProvider(effective);
-  }
+  const provider = detectProvider(effective, customConfig?.explicitProvider);
 
-  // Groq keys start with "gsk_"
-  if (effective.startsWith("gsk_")) {
-    return new GroqProvider({ apiKey: effective });
+  switch (provider) {
+    case "gemini":
+      return new GeminiProvider(effective);
+    case "groq":
+      return new GroqProvider({ apiKey: effective });
+    case "openrouter":
+      return new OpenRouterProvider({ apiKey: effective });
+    case "openai":
+      return new OpenAIProvider({ apiKey: effective });
+    case "cohere":
+      return new CohereProvider({ apiKey: effective });
+    case "freellmapi":
+    case "custom_openai": {
+      const customUrl =
+        customConfig?.baseUrl ||
+        (typeof sessionStorage !== "undefined"
+          ? sessionStorage.getItem("sl_ai_custom_url")
+          : null) ||
+        "http://localhost:3001/v1";
+      const customModel =
+        customConfig?.model ||
+        (typeof sessionStorage !== "undefined"
+          ? sessionStorage.getItem("sl_ai_custom_model")
+          : null) ||
+        "freellmapi/auto";
+      return new CustomOpenAIProvider({
+        apiKey: effective,
+        baseUrl: customUrl,
+        defaultModel: customModel,
+        providerName: provider === "freellmapi" ? "FreeLLMAPI" : "Custom OpenAI",
+      });
+    }
+    case "unknown":
+    default:
+      throw new Error("Key format not recognized. Choose the provider manually from the dropdown.");
   }
-
-  // OpenRouter keys start with "sk-or-"
-  if (effective.startsWith("sk-or-")) {
-    return new OpenRouterProvider({ apiKey: effective });
-  }
-
-  // OpenAI keys start with "sk-proj-" or "sk-"
-  if (effective.startsWith("sk-proj-") || effective.startsWith("sk-")) {
-    return new OpenAIProvider({ apiKey: effective });
-  }
-
-  // Cohere keys are alphanumeric strings without "sk-"
-  if (effective.length > 20 && !effective.startsWith("sk-") && !effective.startsWith("gsk_")) {
-    return new CohereProvider({ apiKey: effective });
-  }
-
-  // Default to GeminiProvider
-  return new GeminiProvider(effective);
 }
 
 /** Wrap untrusted code in clear delimiters to prevent prompt injection. */

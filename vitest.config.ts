@@ -17,6 +17,7 @@ export default defineConfig({
       "src/**/__tests__/education-integrity.test.ts",
       "src/**/__tests__/tier-progression.test.ts",
       "src/**/__tests__/ai-key-management.test.ts",
+      "src/**/__tests__/preflight-checker.test.ts",
       "src/**/__tests__/explanation-logic.test.ts",
       "src/**/__tests__/explanation-integration.test.ts",
     ],
