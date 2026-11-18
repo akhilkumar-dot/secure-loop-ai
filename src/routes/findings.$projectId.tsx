@@ -144,7 +144,9 @@ function FindingsPage() {
             </button>
           ))}
           <span className="mx-1 text-border">|</span>
-          {(["all", "open", "validated", "accepted", "rejected", "likely_false_positive"] as const).map((st) => (
+          {(
+            ["all", "open", "validated", "accepted", "rejected", "likely_false_positive"] as const
+          ).map((st) => (
             <button
               key={st}
               onClick={() => setFilterStatus(st as FindingStatus | "all")}

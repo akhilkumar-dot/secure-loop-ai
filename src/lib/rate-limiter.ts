@@ -267,8 +267,15 @@ export async function executeWithRateLimitAndFallback<T>(params: {
   }
 
   // If no backup key, throw primary failure
+  const isQuota =
+    primaryError?.toLowerCase().includes("quota") ||
+    primaryError?.toLowerCase().includes("rate limit") ||
+    primaryError?.includes("429");
+
+  const quotaHint = isQuota ? " Please check your API key quota or try adding a backup key." : "";
+
   throw new AiExecutionError(
-    `AI generation failed: ${primaryError || "Unknown provider error"}. Please check your API key quota or try adding a backup key.`,
+    `AI generation failed: ${primaryError || "Unknown provider error"}.${quotaHint}`,
     detectProvider(primaryKey),
     "primary",
     primaryError || "Failed",

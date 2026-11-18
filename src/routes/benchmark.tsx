@@ -19,7 +19,10 @@ export const Route = createFileRoute("/benchmark")({
   head: () => ({
     meta: [
       { title: "Benchmark & Evaluation — SecureLoop" },
-      { name: "description", content: "Empirical benchmark evaluation on OWASP datasets with false positive logging." },
+      {
+        name: "description",
+        content: "Empirical benchmark evaluation on OWASP datasets with false positive logging.",
+      },
     ],
   }),
   component: BenchmarkPage,
@@ -133,8 +136,9 @@ function BenchmarkPage() {
               SAST & Patch Validation Benchmark
             </h1>
             <p className="mt-1 text-xs text-subtle max-w-2xl">
-              Evaluated on 18 ground-truth samples from OWASP WebGoat, OWASP Juice Shop, and OWASP NodeGoat.
-              Un-cherry-picked metrics showing true positives, false negatives, and false-positive rate.
+              Evaluated on 18 ground-truth samples from OWASP WebGoat, OWASP Juice Shop, and OWASP
+              NodeGoat. Un-cherry-picked metrics showing true positives, false negatives, and
+              false-positive rate.
             </p>
           </div>
 
@@ -159,7 +163,9 @@ function BenchmarkPage() {
         {/* Metrics Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="rounded-xl border border-border bg-elevated p-5">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">detection rate (recall)</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+              detection rate (recall)
+            </p>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-3xl font-bold text-foreground">
                 {summary.detectionRate}%
@@ -172,7 +178,9 @@ function BenchmarkPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-elevated p-5">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">false positive rate</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+              false positive rate
+            </p>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-3xl font-bold text-warning">
                 {summary.falsePositiveRate}%
@@ -181,11 +189,15 @@ function BenchmarkPage() {
                 ({summary.falsePositives}/{summary.safeControlCount})
               </span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-subtle/80">FP / (FP + TN) on safe controls</p>
+            <p className="mt-1 font-mono text-[10px] text-subtle/80">
+              FP / (FP + TN) on safe controls
+            </p>
           </div>
 
           <div className="rounded-xl border border-border bg-elevated p-5">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">patch validation rate</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+              patch validation rate
+            </p>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-3xl font-bold text-success">
                 {summary.patchSuccessRate}%
@@ -195,7 +207,9 @@ function BenchmarkPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-elevated p-5">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">total runtime</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+              total runtime
+            </p>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-3xl font-bold text-foreground">
                 {summary.totalRuntimeMs}ms
@@ -235,7 +249,8 @@ function BenchmarkPage() {
             <div className="flex items-center gap-2 text-xs font-mono text-subtle">
               <Info className="size-3.5 text-accent" />
               <span>
-                Click &ldquo;Toggle FP&rdquo; to mark any finding as a false positive. Rates update instantly without page reloads.
+                Click &ldquo;Toggle FP&rdquo; to mark any finding as a false positive. Rates update
+                instantly without page reloads.
               </span>
             </div>
 
@@ -325,10 +340,11 @@ function BenchmarkPage() {
                 Note on Third-Party Tools (Copilot Autofix & Snyk Code):
               </p>
               <p>
-                GitHub Copilot Autofix and Snyk Code cannot be invoked programmatically from external browser sessions.
-                The table below provides the evaluation matrix template. Fields are intentionally marked as
-                &ldquo;Pending manual evaluation&rdquo; rather than fabricated. You can export this template as CSV to fill
-                in your offline audit scores.
+                GitHub Copilot Autofix and Snyk Code cannot be invoked programmatically from
+                external browser sessions. The table below provides the evaluation matrix template.
+                Fields are intentionally marked as &ldquo;Pending manual evaluation&rdquo; rather
+                than fabricated. You can export this template as CSV to fill in your offline audit
+                scores.
               </p>
             </div>
 
@@ -347,14 +363,25 @@ function BenchmarkPage() {
                     <tr key={r.sampleId}>
                       <td className="px-4 py-3.5 max-w-xs">
                         <p className="font-semibold text-foreground">{r.name}</p>
-                        <p className="text-[10px] text-subtle">{r.vulnClass.toUpperCase()} · {r.cwe}</p>
+                        <p className="text-[10px] text-subtle">
+                          {r.vulnClass.toUpperCase()} · {r.cwe}
+                        </p>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className={r.secureloopDetected ? "text-success font-semibold" : "text-subtle"}>
+                        <span
+                          className={
+                            r.secureloopDetected ? "text-success font-semibold" : "text-subtle"
+                          }
+                        >
                           Detected: {r.secureloopDetected ? "YES" : "NO"}
                         </span>
                         <div className="text-[10px] text-subtle mt-0.5">
-                          Patch: {r.secureloopPatchValid === null ? "n/a" : r.secureloopPatchValid ? "VALIDATED" : "REJECTED"}
+                          Patch:{" "}
+                          {r.secureloopPatchValid === null
+                            ? "n/a"
+                            : r.secureloopPatchValid
+                              ? "VALIDATED"
+                              : "REJECTED"}
                         </div>
                       </td>
                       <td className="px-4 py-3.5">
@@ -364,7 +391,9 @@ function BenchmarkPage() {
                           onChange={(e) => {
                             const val = e.target.value;
                             setComparisonRows((prev) =>
-                              prev.map((row, idx) => (idx === i ? { ...row, copilotDetected: val } : row)),
+                              prev.map((row, idx) =>
+                                idx === i ? { ...row, copilotDetected: val } : row,
+                              ),
                             );
                           }}
                           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-subtle focus:text-foreground focus:border-accent/40 focus:outline-none"
@@ -377,7 +406,9 @@ function BenchmarkPage() {
                           onChange={(e) => {
                             const val = e.target.value;
                             setComparisonRows((prev) =>
-                              prev.map((row, idx) => (idx === i ? { ...row, snykDetected: val } : row)),
+                              prev.map((row, idx) =>
+                                idx === i ? { ...row, snykDetected: val } : row,
+                              ),
                             );
                           }}
                           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-subtle focus:text-foreground focus:border-accent/40 focus:outline-none"
@@ -394,4 +425,3 @@ function BenchmarkPage() {
     </div>
   );
 }
-

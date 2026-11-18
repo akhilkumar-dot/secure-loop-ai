@@ -11,7 +11,14 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase, type DbFinding, type DbProject, type DbSecurityScore, type DbExplanation, type DbPatch } from "@/lib/supabase";
+import {
+  supabase,
+  type DbFinding,
+  type DbProject,
+  type DbSecurityScore,
+  type DbExplanation,
+  type DbPatch,
+} from "@/lib/supabase";
 import { Logo, SeverityBadge, StatusBadge, DiffView, ScoreBadge } from "@/components/chrome";
 import { parseDiff } from "@/lib/types";
 import { getAllMasteryProfiles, type MasteryProfileRow } from "@/lib/mastery-db";
@@ -22,7 +29,10 @@ export const Route = createFileRoute("/report/$projectId")({
   head: () => ({
     meta: [
       { title: "Security Audit & Learning Report — SecureLoop" },
-      { name: "description", content: "Comprehensive security remediation and developer mastery report." },
+      {
+        name: "description",
+        content: "Comprehensive security remediation and developer mastery report.",
+      },
     ],
   }),
   component: ReportPage,
@@ -59,7 +69,11 @@ function ReportPage() {
 
     try {
       // 1. Fetch project
-      const { data: pData } = await supabase.from("projects").select("*").eq("id", projectId).single();
+      const { data: pData } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
       if (pData) setProject(pData);
 
       // 2. Fetch findings with explanations & patches
@@ -110,7 +124,9 @@ function ReportPage() {
   if (loading || loadingData) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="font-mono text-xs text-subtle animate-pulse">generating audit report…</span>
+        <span className="font-mono text-xs text-subtle animate-pulse">
+          generating audit report…
+        </span>
       </div>
     );
   }
@@ -167,13 +183,20 @@ function ReportPage() {
               {project?.name ?? "Repository Security Audit"}
             </h1>
             <p className="font-mono text-xs text-subtle mt-1 print:text-gray-600">
-              Repository: {project?.repo_url || "Local Archive Upload"} · Branch: {project?.default_branch || "main"}
+              Repository: {project?.repo_url || "Local Archive Upload"} · Branch:{" "}
+              {project?.default_branch || "main"}
             </p>
           </div>
 
           <div className="text-right font-mono text-xs text-subtle print:text-gray-600">
-            <p>Auditor / User: <strong className="text-foreground print:text-black">{user?.email}</strong></p>
-            <p>Generated: <strong className="text-foreground print:text-black">{generatedDate}</strong></p>
+            <p>
+              Auditor / User:{" "}
+              <strong className="text-foreground print:text-black">{user?.email}</strong>
+            </p>
+            <p>
+              Generated:{" "}
+              <strong className="text-foreground print:text-black">{generatedDate}</strong>
+            </p>
           </div>
         </div>
 
@@ -184,25 +207,33 @@ function ReportPage() {
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">security score</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                security score
+              </p>
               <p className="mt-2 font-display text-3xl font-bold text-foreground print:text-black">
                 {score?.overall ?? 0}/100
               </p>
             </div>
             <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">total findings</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                total findings
+              </p>
               <p className="mt-2 font-display text-3xl font-bold text-foreground print:text-black">
                 {findings.length}
               </p>
             </div>
             <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">validated fixes</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                validated fixes
+              </p>
               <p className="mt-2 font-display text-3xl font-bold text-success print:text-black">
                 {validatedCount}
               </p>
             </div>
             <div className="rounded-xl border border-border bg-elevated p-4 print:border-gray-300 print:bg-gray-50">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">developer accepted</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                developer accepted
+              </p>
               <p className="mt-2 font-display text-3xl font-bold text-foreground print:text-black">
                 {acceptedCount}
               </p>
@@ -263,7 +294,9 @@ function ReportPage() {
                         <span className="font-mono text-xs uppercase tracking-wider text-foreground">
                           {f.vulnerability_class}
                         </span>
-                        <span className="font-mono text-xs text-subtle">({f.cwe || "CWE-Unassigned"})</span>
+                        <span className="font-mono text-xs text-subtle">
+                          ({f.cwe || "CWE-Unassigned"})
+                        </span>
                       </div>
                       <StatusBadge status={f.status} />
                     </div>
@@ -271,7 +304,9 @@ function ReportPage() {
                     <div className="font-mono text-xs space-y-1">
                       <p>
                         <span className="text-subtle">File Location:</span>{" "}
-                        <strong className="text-foreground">{f.file_path}:{f.line_start || 1}</strong>
+                        <strong className="text-foreground">
+                          {f.file_path}:{f.line_start || 1}
+                        </strong>
                       </p>
                       {f.raw_message && (
                         <p className="text-subtle/90 leading-relaxed mt-1">{f.raw_message}</p>
@@ -285,13 +320,22 @@ function ReportPage() {
                           remoting explanation
                         </p>
                         {f.explanation.what_it_is && (
-                          <p><span className="text-subtle">What it is:</span> {f.explanation.what_it_is}</p>
+                          <p>
+                            <span className="text-subtle">What it is:</span>{" "}
+                            {f.explanation.what_it_is}
+                          </p>
                         )}
                         {f.explanation.why_it_happened && (
-                          <p><span className="text-subtle">Root cause:</span> {f.explanation.why_it_happened}</p>
+                          <p>
+                            <span className="text-subtle">Root cause:</span>{" "}
+                            {f.explanation.why_it_happened}
+                          </p>
                         )}
                         {f.explanation.how_fix_works && (
-                          <p><span className="text-subtle">Fix strategy:</span> {f.explanation.how_fix_works}</p>
+                          <p>
+                            <span className="text-subtle">Fix strategy:</span>{" "}
+                            {f.explanation.how_fix_works}
+                          </p>
                         )}
                       </div>
                     )}
@@ -301,8 +345,15 @@ function ReportPage() {
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-xs font-mono">
                           <span className="text-subtle">Validated Patch:</span>
-                          <span className={f.patch.validation_verdict === "accepted" ? "text-success font-semibold" : "text-danger"}>
-                            Sandbox Verdict: {f.patch.validation_verdict?.toUpperCase() || "PENDING"}
+                          <span
+                            className={
+                              f.patch.validation_verdict === "accepted"
+                                ? "text-success font-semibold"
+                                : "text-danger"
+                            }
+                          >
+                            Sandbox Verdict:{" "}
+                            {f.patch.validation_verdict?.toUpperCase() || "PENDING"}
                           </span>
                         </div>
                         {diffLines.length > 0 && (
@@ -332,10 +383,14 @@ function ReportPage() {
                 Active Recurring Misconceptions:
               </p>
               {misconceptions.map((m) => (
-                <div key={m.id} className="rounded-lg border border-border bg-elevated p-3 font-mono text-xs">
+                <div
+                  key={m.id}
+                  className="rounded-lg border border-border bg-elevated p-3 font-mono text-xs"
+                >
                   <p className="text-foreground font-semibold">{m.misconception_label}</p>
                   <p className="text-subtle text-[11px] mt-1">
-                    Triggered in {m.supporting_attempt_ids?.length ?? m.occurrences} of last 4 quiz submissions for{" "}
+                    Triggered in {m.supporting_attempt_ids?.length ?? m.occurrences} of last 4 quiz
+                    submissions for{" "}
                     <span className="uppercase text-foreground">{m.vuln_class}</span>.
                   </p>
                 </div>
@@ -343,7 +398,8 @@ function ReportPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-border p-4 font-mono text-xs text-subtle">
-              No recurring misconceptions detected. Quiz answers demonstrate clean conceptual comprehension.
+              No recurring misconceptions detected. Quiz answers demonstrate clean conceptual
+              comprehension.
             </div>
           )}
         </div>
@@ -400,7 +456,9 @@ function ReportPage() {
                           {level}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-foreground">{accuracy}% ({correct}/{attempts})</td>
+                      <td className="px-4 py-3 text-foreground">
+                        {accuracy}% ({correct}/{attempts})
+                      </td>
                       <td className="px-4 py-3 text-subtle">{nextReview}</td>
                     </tr>
                   );
@@ -419,4 +477,3 @@ function ReportPage() {
     </div>
   );
 }
-

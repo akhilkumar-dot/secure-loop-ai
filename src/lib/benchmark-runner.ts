@@ -57,9 +57,9 @@ export interface BenchmarkSummary {
   falseNegatives: number;
   falsePositives: number;
   trueNegatives: number;
-  detectionRate: number;        // 0 - 100%
-  falsePositiveRate: number;    // 0 - 100%
-  patchSuccessRate: number;     // 0 - 100%
+  detectionRate: number; // 0 - 100%
+  falsePositiveRate: number; // 0 - 100%
+  patchSuccessRate: number; // 0 - 100%
   totalRuntimeMs: number;
   sampleResults: SampleResult[];
 }
@@ -108,7 +108,8 @@ module.exports = router;`,
     isVulnerable: true,
     source: "OWASP Juice Shop",
     license: "MIT",
-    description: "Raw req.body objects passed directly into Mongoose findOne() enabling auth bypass.",
+    description:
+      "Raw req.body objects passed directly into Mongoose findOne() enabling auth bypass.",
     code: `const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
@@ -217,7 +218,8 @@ module.exports = router;`,
     isVulnerable: true,
     source: "OWASP NodeGoat",
     license: "Apache-2.0",
-    description: "User-supplied query parameter reflected in unescaped HTML string sent via res.send().",
+    description:
+      "User-supplied query parameter reflected in unescaped HTML string sent via res.send().",
     code: `const express = require('express');
 const app = express();
 
@@ -282,7 +284,8 @@ module.exports = router;`,
     isVulnerable: true,
     source: "OWASP WebGoat (SecurityConfig.java)",
     license: "Apache-2.0",
-    description: "Explicit call to http.csrf().disable() on Spring Security authenticated web endpoints.",
+    description:
+      "Explicit call to http.csrf().disable() on Spring Security authenticated web endpoints.",
     code: `package org.owasp.webgoat;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -311,7 +314,8 @@ public class WebSecurityConfig {
     isVulnerable: true,
     source: "OWASP NodeGoat",
     license: "Apache-2.0",
-    description: "Session-authenticated Express app with state-changing routes and no anti-CSRF token middleware.",
+    description:
+      "Session-authenticated Express app with state-changing routes and no anti-CSRF token middleware.",
     code: `const express = require('express');
 const session = require('express-session');
 const app = express();
@@ -571,9 +575,7 @@ module.exports = connection;`,
  * Execute the benchmark suite against all samples.
  * Optional `manualFalsePositives` map allows user-overrides from the UI.
  */
-export function runBenchmark(
-  manualFalsePositives: Record<string, boolean> = {},
-): BenchmarkSummary {
+export function runBenchmark(manualFalsePositives: Record<string, boolean> = {}): BenchmarkSummary {
   const startTime = Date.now();
   const sampleResults: SampleResult[] = [];
 
@@ -704,4 +706,3 @@ export function runBenchmark(
     sampleResults,
   };
 }
-

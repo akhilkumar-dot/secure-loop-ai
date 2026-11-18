@@ -2,15 +2,15 @@
 // Source: OWASP Juice Shop
 // License: MIT
 
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const User = require('../models/User');
+const User = require("../models/User");
 
-router.post('/login', async (req, res) => {
+router.post("/login", async (req, res) => {
   // Vulnerability: passing raw req.body object to MongoDB findOne allows {$gt: ""} injection
   const user = await User.findOne({
     username: req.body.username,
-    password: req.body.password
+    password: req.body.password,
   });
   if (user) {
     res.json({ success: true, token: "session-ok" });
@@ -20,4 +20,3 @@ router.post('/login', async (req, res) => {
 });
 
 module.exports = router;
-

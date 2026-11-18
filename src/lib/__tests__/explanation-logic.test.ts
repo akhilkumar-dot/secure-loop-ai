@@ -21,6 +21,11 @@ import {
 import { extractFirstJson, ExplanationOutputSchema } from "../explanation-service";
 import { checkExplanationGrounding } from "../grounding-checker";
 import { redactKeys } from "../ai-provider-detector";
+import {
+  GROQ_PREFERRED_MODELS,
+  GROQ_STRUCTURED_EXPLANATION_SCHEMA,
+  resolveCandidateGroqModels,
+} from "../groq";
 import fixtureSqli from "./fixtures/explanation-sqli-gemini.json";
 import fixtureNosqli from "./fixtures/explanation-nosqli-groq.json";
 
@@ -261,5 +266,65 @@ describe("Security & Privacy Guarantees", () => {
     expect(serialized).not.toContain("AIza");
     expect(serialized).not.toContain("gsk_");
     expect(serialized).not.toContain("sk-");
+  });
+});
+
+describe("Groq Dynamic Model Discovery & Error Classification", () => {
+  it("maintains the priority list in one config location with gpt-oss-120b first", () => {
+    expect(GROQ_PREFERRED_MODELS).toEqual([
+      "openai/gpt-oss-120b",
+      "qwen/qwen3.6-27b",
+      "openai/gpt-oss-20b",
+    ]);
+  });
+
+  it("selects the highest priority model available in the live models list", () => {
+    const liveModels = ["random-chat-model", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"];
+    const resolved = resolveCandidateGroqModels(liveModels);
+
+    expect(resolved.chosenModel).toBe("qwen/qwen3.6-27b");
+    expect(resolved.isFallback).toBe(false);
+    expect(resolved.models[0]).toBe("qwen/qwen3.6-27b");
+    expect(resolved.models[1]).toBe("openai/gpt-oss-20b");
+  });
+
+  it("selects openai/gpt-oss-120b first when present in live list", () => {
+    const liveModels = [
+      "openai/gpt-oss-20b",
+      "openai/gpt-oss-120b",
+      "qwen/qwen3.6-27b",
+      "some-other-model",
+    ];
+    const resolved = resolveCandidateGroqModels(liveModels);
+
+    expect(resolved.chosenModel).toBe("openai/gpt-oss-120b");
+    expect(resolved.isFallback).toBe(false);
+  });
+
+  it("picks a live fallback model if none of the preferred models are active", () => {
+    const liveModels = ["mistral-next-model", "community-chat-1"];
+    const resolved = resolveCandidateGroqModels(liveModels);
+
+    expect(resolved.chosenModel).toBe("mistral-next-model");
+    expect(resolved.isFallback).toBe(true);
+    expect(resolved.models).toEqual(["mistral-next-model", "community-chat-1"]);
+  });
+
+  it("throws a descriptive error when the live model list is empty", () => {
+    expect(() => resolveCandidateGroqModels([])).toThrow(/Live Groq model list is empty/);
+  });
+
+  it("verifies structured output schema complies with Groq strict mode rules", () => {
+    expect(GROQ_STRUCTURED_EXPLANATION_SCHEMA.type).toBe("object");
+    expect(GROQ_STRUCTURED_EXPLANATION_SCHEMA.additionalProperties).toBe(false);
+
+    // Every property must be in required
+    const propKeys = Object.keys(GROQ_STRUCTURED_EXPLANATION_SCHEMA.properties);
+    expect(GROQ_STRUCTURED_EXPLANATION_SCHEMA.required).toEqual(expect.arrayContaining(propKeys));
+
+    // Sub-objects must also have additionalProperties: false
+    const subObj = GROQ_STRUCTURED_EXPLANATION_SCHEMA.properties.what_it_is;
+    expect(subObj.additionalProperties).toBe(false);
+    expect(subObj.required).toEqual(expect.arrayContaining(["technical", "simplified"]));
   });
 });

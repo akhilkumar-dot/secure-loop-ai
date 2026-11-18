@@ -7,4 +7,3 @@ function updateProfileBadge(user) {
   // Safe: textContent escapes all HTML entities automatically
   badge.textContent = user.displayName;
 }
-

@@ -2,13 +2,13 @@
 // Source: OWASP NodeGoat (profile.js)
 // License: Apache-2.0
 
-const express = require('express');
-const serialize = require('node-serialize');
+const express = require("express");
+const serialize = require("node-serialize");
 const app = express();
 
-app.get('/profile', (req, res) => {
+app.get("/profile", (req, res) => {
   if (req.cookies.profile) {
-    const str = Buffer.from(req.cookies.profile, 'base64').toString();
+    const str = Buffer.from(req.cookies.profile, "base64").toString();
     // Vulnerability: node-serialize executes IIFE function strings in payload
     const obj = serialize.unserialize(str);
     res.send("Welcome back " + obj.username);
@@ -16,4 +16,3 @@ app.get('/profile', (req, res) => {
     res.send("No profile cookie found");
   }
 });
-

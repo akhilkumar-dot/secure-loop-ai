@@ -2,11 +2,11 @@
 // Source: OWASP NodeGoat (contributions.js)
 // License: Apache-2.0
 
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const db = require('./db');
+const db = require("./db");
 
-router.get('/user', async (req, res) => {
+router.get("/user", async (req, res) => {
   const userId = req.query.userId;
   // Vulnerability: user input directly interpolated into SQL
   const query = "SELECT * FROM users WHERE id = '" + userId + "' AND status = 'active'";
@@ -15,4 +15,3 @@ router.get('/user', async (req, res) => {
 });
 
 module.exports = router;
-

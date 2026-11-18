@@ -779,7 +779,18 @@ function FindingDetailPage() {
 
                 <div className="border-t border-border pt-3 text-subtle/50 text-[10px] flex items-center justify-between">
                   <span>
-                    {finding.explanation.model ? `model: ${finding.explanation.model}` : ""}
+                    {finding.explanation.model
+                      ? `provider: ${
+                          finding.explanation.model.includes("gpt-oss") ||
+                          finding.explanation.model.includes("qwen") ||
+                          finding.explanation.model.includes("llama") ||
+                          finding.explanation.model.includes("mixtral")
+                            ? "Groq"
+                            : finding.explanation.model.startsWith("gemini")
+                              ? "Google Gemini"
+                              : "AI"
+                        } · model: ${finding.explanation.model}`
+                      : ""}
                   </span>
                   <span className="capitalize text-accent/80 font-medium">
                     {explanationMode} view

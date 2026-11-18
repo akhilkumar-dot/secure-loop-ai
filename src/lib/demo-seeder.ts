@@ -13,7 +13,9 @@
 
 import { supabase } from "@/lib/supabase";
 
-export async function seedDemoData(userId: string): Promise<{ projectId: string; findingId: string }> {
+export async function seedDemoData(
+  userId: string,
+): Promise<{ projectId: string; findingId: string }> {
   // 1. Clean up any existing demo projects for this user to ensure idempotent seed
   const { data: existingProjects } = await supabase
     .from("projects")
@@ -80,12 +82,17 @@ export async function seedDemoData(userId: string): Promise<{ projectId: string;
       line_start: 7,
       line_end: 9,
       vulnerability_class: "sqli",
-      raw_message: "User-controlled data from req.query flows directly into raw SQL statement without parameterization.",
+      raw_message:
+        "User-controlled data from req.query flows directly into raw SQL statement without parameterization.",
       status: "validated",
       code_lines: [
         { n: 5, code: "router.get('/user', async (req, res) => {", vuln: false },
         { n: 6, code: "  const userId = req.query.userId;", vuln: false },
-        { n: 7, code: "  const query = \"SELECT * FROM users WHERE id = '\" + userId + \"' AND status = 'active'\";", vuln: true },
+        {
+          n: 7,
+          code: "  const query = \"SELECT * FROM users WHERE id = '\" + userId + \"' AND status = 'active'\";",
+          vuln: true,
+        },
         { n: 8, code: "  const results = await db.query(query);", vuln: true },
         { n: 9, code: "  res.json(results);", vuln: false },
         { n: 10, code: "});", vuln: false },
@@ -150,10 +157,13 @@ export async function seedDemoData(userId: string): Promise<{ projectId: string;
       .from("explanations")
       .insert({
         finding_id: findingId,
-        what_it_is: "User-supplied query parameter 'userId' is concatenated directly into SQL text. Attackers can supply \"' OR '1'='1\" to bypass authentication or extract sensitive records.",
-        why_it_happened: "The query string is dynamically assembled via string concatenation before reaching db.query(), preventing the database parser from separating code from data.",
+        what_it_is:
+          "User-supplied query parameter 'userId' is concatenated directly into SQL text. Attackers can supply \"' OR '1'='1\" to bypass authentication or extract sensitive records.",
+        why_it_happened:
+          "The query string is dynamically assembled via string concatenation before reaching db.query(), preventing the database parser from separating code from data.",
         owasp_category: "A03:2021 — Injection",
-        how_fix_works: "The patch replaces direct string concatenation with parameterized placeholders ($1). The database driver binds user input as a literal value.",
+        how_fix_works:
+          "The patch replaces direct string concatenation with parameterized placeholders ($1). The database driver binds user input as a literal value.",
         confidence: "high",
         is_applicable: true,
       })
@@ -194,73 +204,85 @@ export async function seedDemoData(userId: string): Promise<{ projectId: string;
   // Attempt 1 (3 days ago - wrong with sqli_encrypt)
   const t1 = new Date(baseTime);
   t1.setDate(t1.getDate() - 3);
-  const { data: a1 } = await supabase.from("education_checks").insert({
-    finding_id: findingId,
-    user_id: userId,
-    question_id: "sqli_easy_1",
-    vuln_class: "sqli",
-    tier: "easy",
-    question: "Why do parameterized queries prevent SQL injection?",
-    options: [
-      "They encrypt the input before reaching the database",
-      "The query structure is parsed before user data is bound — input can never become SQL syntax",
-      "They strip all quotes from user input",
-      "They run queries in a read-only transaction",
-    ],
-    correct_index: 1,
-    user_answer: 0,
-    correct: false,
-    misconception_id: "sqli_encrypt",
-    answered_at: t1.toISOString(),
-  }).select().single();
+  const { data: a1 } = await supabase
+    .from("education_checks")
+    .insert({
+      finding_id: findingId,
+      user_id: userId,
+      question_id: "sqli_easy_1",
+      vuln_class: "sqli",
+      tier: "easy",
+      question: "Why do parameterized queries prevent SQL injection?",
+      options: [
+        "They encrypt the input before reaching the database",
+        "The query structure is parsed before user data is bound — input can never become SQL syntax",
+        "They strip all quotes from user input",
+        "They run queries in a read-only transaction",
+      ],
+      correct_index: 1,
+      user_answer: 0,
+      correct: false,
+      misconception_id: "sqli_encrypt",
+      answered_at: t1.toISOString(),
+    })
+    .select()
+    .single();
   if (a1?.id) attemptIds.push(a1.id);
 
   // Attempt 2 (2 days ago - wrong with sqli_encrypt)
   const t2 = new Date(baseTime);
   t2.setDate(t2.getDate() - 2);
-  const { data: a2 } = await supabase.from("education_checks").insert({
-    finding_id: findingId,
-    user_id: userId,
-    question_id: "sqli_easy_2",
-    vuln_class: "sqli",
-    tier: "easy",
-    question: "Which of the following is the safest way to build a SQL query with user input?",
-    options: [
-      "Concatenate the input after escaping single quotes",
-      "Use a prepared statement with a placeholder (e.g. WHERE id = ?)",
-      "Sanitise the input with a regex before interpolating it",
-      "Use string templates inside a stored procedure",
-    ],
-    correct_index: 1,
-    user_answer: 0,
-    correct: false,
-    misconception_id: "sqli_encrypt",
-    answered_at: t2.toISOString(),
-  }).select().single();
+  const { data: a2 } = await supabase
+    .from("education_checks")
+    .insert({
+      finding_id: findingId,
+      user_id: userId,
+      question_id: "sqli_easy_2",
+      vuln_class: "sqli",
+      tier: "easy",
+      question: "Which of the following is the safest way to build a SQL query with user input?",
+      options: [
+        "Concatenate the input after escaping single quotes",
+        "Use a prepared statement with a placeholder (e.g. WHERE id = ?)",
+        "Sanitise the input with a regex before interpolating it",
+        "Use string templates inside a stored procedure",
+      ],
+      correct_index: 1,
+      user_answer: 0,
+      correct: false,
+      misconception_id: "sqli_encrypt",
+      answered_at: t2.toISOString(),
+    })
+    .select()
+    .single();
   if (a2?.id) attemptIds.push(a2.id);
 
   // Attempt 3 (1 day ago - wrong with sqli_encrypt)
   const t3 = new Date(baseTime);
   t3.setDate(t3.getDate() - 1);
-  const { data: a3 } = await supabase.from("education_checks").insert({
-    finding_id: findingId,
-    user_id: userId,
-    question_id: "sqli_easy_1",
-    vuln_class: "sqli",
-    tier: "easy",
-    question: "Why do parameterized queries prevent SQL injection?",
-    options: [
-      "They encrypt the input before reaching the database",
-      "The query structure is parsed before user data is bound — input can never become SQL syntax",
-      "They strip all quotes from user input",
-      "They run queries in a read-only transaction",
-    ],
-    correct_index: 1,
-    user_answer: 0,
-    correct: false,
-    misconception_id: "sqli_encrypt",
-    answered_at: t3.toISOString(),
-  }).select().single();
+  const { data: a3 } = await supabase
+    .from("education_checks")
+    .insert({
+      finding_id: findingId,
+      user_id: userId,
+      question_id: "sqli_easy_1",
+      vuln_class: "sqli",
+      tier: "easy",
+      question: "Why do parameterized queries prevent SQL injection?",
+      options: [
+        "They encrypt the input before reaching the database",
+        "The query structure is parsed before user data is bound — input can never become SQL syntax",
+        "They strip all quotes from user input",
+        "They run queries in a read-only transaction",
+      ],
+      correct_index: 1,
+      user_answer: 0,
+      correct: false,
+      misconception_id: "sqli_encrypt",
+      answered_at: t3.toISOString(),
+    })
+    .select()
+    .single();
   if (a3?.id) attemptIds.push(a3.id);
 
   // Attempt 4 (30 mins ago - correct!)
@@ -385,4 +407,3 @@ export async function seedDemoData(userId: string): Promise<{ projectId: string;
 
   return { projectId, findingId: findingId ?? "" };
 }
-

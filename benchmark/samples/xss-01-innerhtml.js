@@ -8,4 +8,3 @@ function renderSearchResults(data) {
   // Vulnerability: directly inserting unescaped query string into innerHTML
   container.innerHTML = "<h3>Results for: " + query + "</h3>" + data;
 }
-
