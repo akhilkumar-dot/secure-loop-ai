@@ -128,12 +128,12 @@ export function buildPatchFilePayload({
   isOverride,
 }: {
   filePath: string;
-  commitSha?: string | null;
+  commitSha?: string | null | undefined;
   diff: string;
-  generatedAt?: string;
-  validationVerdict?: string;
-  userEmail?: string;
-  isOverride?: boolean;
+  generatedAt?: string | undefined;
+  validationVerdict?: string | undefined;
+  userEmail?: string | undefined;
+  isOverride?: boolean | undefined;
 }): { fileName: string; content: string } {
   const cleanPath = (filePath || "remediation").replace(/[^a-zA-Z0-9._-]/g, "_");
   const fileName = `${cleanPath}.patch`;
@@ -164,7 +164,12 @@ export function isFindingSuppressed(
   return suppressions.some((s) => {
     if (s.file_path !== finding.file_path) return false;
     if (s.rule_id && finding.rule_id && s.rule_id !== finding.rule_id) return false;
-    if (s.line_start !== null && s.line_start !== undefined && finding.line_start !== undefined) {
+    if (
+      s.line_start !== null &&
+      s.line_start !== undefined &&
+      finding.line_start !== null &&
+      finding.line_start !== undefined
+    ) {
       return Math.abs(s.line_start - finding.line_start) <= 2;
     }
     return true;
@@ -336,8 +341,8 @@ describe("Finding Decision Actions & Status Integrity", () => {
         finding_id: REAL_SCAN_FIXTURE_SQLI.id,
         rule_id: REAL_SCAN_FIXTURE_SQLI.rule_id,
         file_path: REAL_SCAN_FIXTURE_SQLI.file_path,
-        line_start: REAL_SCAN_FIXTURE_SQLI.line_start,
-        vulnerability_class: REAL_SCAN_FIXTURE_SQLI.vulnerability_class,
+        line_start: REAL_SCAN_FIXTURE_SQLI.line_start ?? null,
+        vulnerability_class: REAL_SCAN_FIXTURE_SQLI.vulnerability_class ?? null,
         reason_code: "test_code",
         reason_text: "Benchmark sample harness, intentionally vulnerable for detection validation.",
         created_at: "2026-11-18T10:45:00.000Z",

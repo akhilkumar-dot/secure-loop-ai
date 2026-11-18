@@ -190,7 +190,7 @@ function ReportPage() {
               {project?.name ?? "Repository Security Audit"}
             </h1>
             <p className="font-mono text-xs text-subtle mt-1 print:text-gray-600">
-              Repository: {project?.repo_url || "Local Archive Upload"} · Branch:{" "}
+              Repository: {project?.repo_url || "GitHub Repository"} · Branch:{" "}
               {project?.default_branch || "main"}
             </p>
           </div>

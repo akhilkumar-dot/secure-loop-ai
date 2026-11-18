@@ -104,7 +104,8 @@ export const projects: Project[] = [
   {
     id: "checkout",
     name: "checkout-service",
-    sourceType: "zip",
+    sourceType: "git",
+    repoUrl: "https://github.com/org/checkout-service",
     defaultBranch: "main",
     lastScanStatus: "done",
     lastScanAt: "6 days ago",

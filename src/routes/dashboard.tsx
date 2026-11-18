@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 import {
   Plus,
   Github,
-  Upload,
   LogOut,
   Settings,
   ChevronRight,
@@ -60,7 +59,6 @@ function DashboardPage() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [newRepoUrl, setNewRepoUrl] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
-  const [sourceType, setSourceType] = useState<"git" | "zip">("git");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -190,8 +188,8 @@ function DashboardPage() {
       setCreateError("Project name is required.");
       return;
     }
-    if (sourceType === "git" && !newRepoUrl.trim()) {
-      setCreateError("GitHub repository URL is required for git projects.");
+    if (!newRepoUrl.trim()) {
+      setCreateError("GitHub repository URL is required.");
       return;
     }
     setCreating(true);
@@ -201,8 +199,8 @@ function DashboardPage() {
       .insert({
         owner_id: user.id,
         name: newProjectName.trim(),
-        source_type: sourceType,
-        repo_url: sourceType === "git" ? newRepoUrl.trim() || null : null,
+        source_type: "git",
+        repo_url: newRepoUrl.trim(),
         default_branch: "main",
       })
       .select()
@@ -622,7 +620,7 @@ function DashboardPage() {
         {showNewProject && (
           <div className="mt-6 rounded-lg border border-border bg-elevated p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="font-mono text-xs font-semibold">connect a repository</p>
+              <p className="font-mono text-xs font-semibold">connect a github repository</p>
               {activeGithubToken && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 font-mono text-[10px] text-success">
                   <Github className="size-3" /> GitHub Authenticated
@@ -630,24 +628,7 @@ function DashboardPage() {
               )}
             </div>
 
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setSourceType("git")}
-                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[11px] cursor-pointer transition-colors ${sourceType === "git" ? "border-accent/50 text-foreground bg-accent/10" : "border-border text-subtle hover:text-foreground"}`}
-              >
-                <Github className="size-3" />
-                github url
-              </button>
-              <button
-                onClick={() => setSourceType("zip")}
-                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[11px] cursor-pointer transition-colors ${sourceType === "zip" ? "border-accent/50 text-foreground bg-accent/10" : "border-border text-subtle hover:text-foreground"}`}
-              >
-                <Upload className="size-3" />
-                zip upload
-              </button>
-            </div>
-
-            {sourceType === "git" && userRepos.length > 0 && (
+            {userRepos.length > 0 && (
               <div className="mb-4 rounded-lg border border-border bg-background p-3">
                 <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
                   Import from your GitHub repositories (1-click)
@@ -686,20 +667,18 @@ function DashboardPage() {
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
               </div>
-              {sourceType === "git" && (
-                <div>
-                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                    repo url
-                  </label>
-                  <input
-                    type="text"
-                    value={newRepoUrl}
-                    onChange={(e) => setNewRepoUrl(e.target.value)}
-                    placeholder="github.com/you/repo"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  github repo url
+                </label>
+                <input
+                  type="text"
+                  value={newRepoUrl}
+                  onChange={(e) => setNewRepoUrl(e.target.value)}
+                  placeholder="https://github.com/owner/repo"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                />
+              </div>
             </div>
             {createError && <p className="mt-2 font-mono text-[11px] text-danger">{createError}</p>}
             <div className="mt-4 flex gap-2">
@@ -728,7 +707,7 @@ function DashboardPage() {
               <ShieldCheck className="mx-auto size-8 text-subtle/30" strokeWidth={1} />
               <p className="mt-4 font-mono text-sm text-subtle">no projects yet</p>
               <p className="mt-1 font-mono text-xs text-subtle/60">
-                connect a GitHub repo or upload a zip to start scanning
+                connect a GitHub repository to start scanning
               </p>
               <button
                 onClick={() => setShowNewProject(true)}
