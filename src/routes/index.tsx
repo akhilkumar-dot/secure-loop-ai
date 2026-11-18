@@ -8,10 +8,12 @@ import {
   GraduationCap,
   KeyRound,
   ListChecks,
+  Menu,
   Minus,
   Plus,
   ScanSearch,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { Eyebrow, Logo, Pill, PillLink, TerminalWindow } from "@/components/chrome";
 import { useAuth } from "@/hooks/use-auth";
@@ -58,10 +60,11 @@ function LandingPage() {
 
 function MarketingNav() {
   const { user, loading, signOut } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Logo />
         <nav className="hidden items-center gap-7 font-mono text-xs text-subtle md:flex">
           <a href="#pipeline" className="transition-colors hover:text-foreground">
@@ -77,7 +80,7 @@ function MarketingNav() {
             faq
           </a>
         </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {!loading && (
             <>
               {user ? (
@@ -88,8 +91,8 @@ function MarketingNav() {
                   >
                     sign out
                   </button>
-                  <PillLink to="/dashboard" className="px-4 py-2">
-                    go to dashboard →
+                  <PillLink to="/dashboard" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs">
+                    dashboard →
                   </PillLink>
                 </>
               ) : (
@@ -100,15 +103,99 @@ function MarketingNav() {
                   >
                     sign in
                   </Link>
-                  <PillLink to="/login" className="px-4 py-2">
+                  <PillLink to="/login" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs">
                     get started
                   </PillLink>
                 </>
               )}
             </>
           )}
+
+          {/* Mobile hamburger menu toggle */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle navigation menu"
+            className="flex md:hidden size-9 items-center justify-center rounded-lg border border-border bg-elevated text-subtle hover:text-foreground cursor-pointer transition-colors"
+          >
+            {mobileMenuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Slide-down Menu */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-b border-border bg-elevated/95 backdrop-blur px-5 py-4 space-y-3 font-mono text-xs animate-in slide-in-from-top-2">
+          <div className="flex flex-col space-y-2.5 pb-3 border-b border-border">
+            <a
+              href="#pipeline"
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-subtle hover:text-foreground py-1 transition-colors"
+            >
+              // 01 · pipeline
+            </a>
+            <a
+              href="#validate"
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-subtle hover:text-foreground py-1 transition-colors"
+            >
+              // 02 · validation
+            </a>
+            <a
+              href="#learn"
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-subtle hover:text-foreground py-1 transition-colors"
+            >
+              // 03 · education
+            </a>
+            <a
+              href="#faq"
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-subtle hover:text-foreground py-1 transition-colors"
+            >
+              // 04 · faq
+            </a>
+          </div>
+          <div className="pt-1 flex flex-col gap-2">
+            {user ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="pill-hover flex items-center justify-center gap-2 rounded-full border border-border bg-background py-2 text-foreground font-semibold"
+                >
+                  go to dashboard →
+                </Link>
+                <button
+                  onClick={() => {
+                    signOut();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="py-1.5 text-center text-subtle hover:text-foreground cursor-pointer"
+                >
+                  sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="pill-hover flex items-center justify-center gap-2 rounded-full border border-border bg-background py-2 text-foreground font-semibold"
+                >
+                  get started — free
+                </Link>
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="py-1.5 text-center text-subtle hover:text-foreground"
+                >
+                  sign in
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }
@@ -133,19 +220,19 @@ function Hero() {
   return (
     <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,black,transparent)]" />
-      <div className="relative mx-auto max-w-6xl px-6 pt-24 pb-16 text-center md:pt-32">
-        <Eyebrow className="mb-6">
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6 pt-16 sm:pt-24 md:pt-32 pb-12 sm:pb-16 text-center">
+        <Eyebrow className="mb-4 sm:mb-6">
           closed-loop secure code review · powered by OpenRouter AI
         </Eyebrow>
-        <h1 className="mx-auto max-w-3xl font-display text-4xl font-semibold leading-[1.1] tracking-tight md:text-6xl">
+        <h1 className="mx-auto max-w-3xl font-display text-3xl font-semibold leading-[1.15] tracking-tight sm:text-4xl md:text-6xl">
           Ship secure code, not just detected bugs.
         </h1>
-        <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-subtle">
+        <p className="mx-auto mt-4 sm:mt-6 max-w-xl text-sm sm:text-base leading-relaxed text-subtle">
           SecureLoop fetches your GitHub repo, analyzes every file with OpenRouter multi-model
           fallbacks, explains each vulnerability in plain language, generates a patch — and
           validates it before it ever reaches you.
         </p>
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-7 sm:mt-9 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
           {user ? (
             <PillLink to="/dashboard">go to dashboard →</PillLink>
           ) : (
@@ -160,7 +247,7 @@ function Hero() {
 
         <TerminalWindow
           title="secureloop — scan · patch · validate"
-          className="mx-auto mt-16 max-w-2xl text-left"
+          className="mx-auto mt-10 sm:mt-16 max-w-2xl text-left"
         >
           {heroTerminal.map((l, i) => (
             <div
@@ -192,11 +279,11 @@ function TrustStrip() {
   const items = ["OpenRouter AI", "GitHub API", "Supabase", "OAuth 2.0", "OWASP Top 10"];
   return (
     <section className="border-y border-border">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-10">
         <Eyebrow className="text-center">powered by</Eyebrow>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4">
+        <div className="mt-5 sm:mt-6 flex flex-wrap items-center justify-center gap-x-8 sm:gap-x-12 gap-y-3 sm:gap-y-4">
           {items.map((name) => (
-            <span key={name} className="font-mono text-sm font-medium tracking-wide text-subtle/70">
+            <span key={name} className="font-mono text-xs sm:text-sm font-medium tracking-wide text-subtle/70">
               {name}
             </span>
           ))}
@@ -228,17 +315,17 @@ const pipelineFeatures = [
 
 function PipelineGrid() {
   return (
-    <section id="pipeline" className="mx-auto max-w-6xl px-6 py-24">
+    <section id="pipeline" className="mx-auto max-w-6xl px-4 sm:px-6 py-14 sm:py-24">
       <Eyebrow>01 // the pipeline</Eyebrow>
-      <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight md:text-4xl">
+      <h2 className="mt-3 sm:mt-4 max-w-2xl font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
         Ship your whole backlog of findings, not one prompt at a time.
       </h2>
-      <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-3">
+      <div className="mt-8 sm:mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 md:grid-cols-3">
         {pipelineFeatures.map((f) => (
-          <div key={f.title} className="bg-elevated p-7">
+          <div key={f.title} className="bg-elevated p-5 sm:p-7">
             <f.icon className="size-5 text-accent" strokeWidth={1.5} />
-            <h3 className="mt-5 font-mono text-sm font-semibold">{f.title}</h3>
-            <p className="mt-2 text-sm leading-relaxed text-subtle">{f.desc}</p>
+            <h3 className="mt-4 sm:mt-5 font-mono text-sm font-semibold">{f.title}</h3>
+            <p className="mt-2 text-xs sm:text-sm leading-relaxed text-subtle">{f.desc}</p>
           </div>
         ))}
       </div>
@@ -251,23 +338,23 @@ function PipelineGrid() {
 function ValidateSection() {
   return (
     <section id="validate" className="border-t border-border">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 md:grid-cols-2">
+      <div className="mx-auto grid max-w-6xl items-center gap-8 sm:gap-12 px-4 sm:px-6 py-14 sm:py-24 md:grid-cols-2">
         <div>
           <Eyebrow>02 // validated, not vibes</Eyebrow>
-          <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+          <h2 className="mt-3 sm:mt-4 font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
             Every patch is re-validated by AI before you ever see it.
           </h2>
-          <p className="mt-5 leading-relaxed text-subtle">
+          <p className="mt-4 sm:mt-5 text-sm sm:text-base leading-relaxed text-subtle">
             LLMs write plausible-looking patches that often don't fix the bug or introduce new
             issues. SecureLoop sends each patch back to OpenRouter for a full validation pass —
             checking whether the vulnerability is gone, tests would pass, and no new issues were
             introduced. A patch only reaches your review queue when it passes all checks.
           </p>
-          <div className="mt-7 flex flex-wrap items-center gap-2 font-mono text-[11px]">
+          <div className="mt-6 sm:mt-7 flex flex-wrap items-center gap-1.5 sm:gap-2 font-mono text-[10px] sm:text-[11px]">
             {["detected", "explained", "patch_generated", "validating", "validated"].map(
               (s, i, arr) => (
-                <span key={s} className="flex items-center gap-2">
-                  <span className="rounded-full border border-border px-3 py-1 text-subtle">
+                <span key={s} className="flex items-center gap-1.5 sm:gap-2">
+                  <span className="rounded-full border border-border px-2.5 sm:px-3 py-1 text-subtle">
                     {s}
                   </span>
                   {i < arr.length - 1 && <ArrowRight className="size-3 text-subtle/50" />}
@@ -303,7 +390,7 @@ function ValidateSection() {
 function LearnSection() {
   return (
     <section id="learn" className="border-t border-border">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 md:grid-cols-2">
+      <div className="mx-auto grid max-w-6xl items-center gap-8 sm:gap-12 px-4 sm:px-6 py-14 sm:py-24 md:grid-cols-2">
         <TerminalWindow title="education check — sqli" className="order-2 md:order-1">
           <div className="text-subtle">// quick check before the fix lands</div>
           <div className="mt-3 text-foreground">
@@ -326,15 +413,15 @@ function LearnSection() {
         </TerminalWindow>
         <div className="order-1 md:order-2">
           <Eyebrow>03 // learn as you fix</Eyebrow>
-          <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+          <h2 className="mt-3 sm:mt-4 font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
             Fixes that teach, not fixes that hide.
           </h2>
-          <p className="mt-5 leading-relaxed text-subtle">
+          <p className="mt-4 sm:mt-5 text-sm sm:text-base leading-relaxed text-subtle">
             Every accepted or rejected patch ends with a 60-second interactive check on the
             vulnerability class you just touched. Answers feed a per-category security score — SQLi,
             XSS, CSRF, deserialization — so you can watch your secure-coding instincts trend upward.
           </p>
-          <div className="mt-7">
+          <div className="mt-6 sm:mt-7">
             <PillLink to="/score" variant="outline">
               see the score dashboard
             </PillLink>
@@ -364,20 +451,20 @@ const comparison = [
 function ComparisonSection() {
   return (
     <section className="border-t border-border">
-      <div className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 sm:py-24">
         <Eyebrow>04 // why the loop matters</Eyebrow>
-        <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight md:text-4xl">
+        <h2 className="mt-3 sm:mt-4 max-w-2xl font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
           Detection is table stakes. Validation is the product.
         </h2>
-        <div className="mt-12 overflow-hidden rounded-lg border border-border">
-          <table className="w-full font-mono text-xs">
+        <div className="mt-8 sm:mt-12 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[480px] font-mono text-xs">
             <thead>
               <tr className="border-b border-border bg-elevated text-left text-subtle">
-                <th className="px-5 py-3.5 font-medium uppercase tracking-wider">approach</th>
-                <th className="px-5 py-3.5 font-medium uppercase tracking-wider">detect</th>
-                <th className="px-5 py-3.5 font-medium uppercase tracking-wider">explain</th>
-                <th className="px-5 py-3.5 font-medium uppercase tracking-wider">patch</th>
-                <th className="px-5 py-3.5 font-medium uppercase tracking-wider">validate</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">approach</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">detect</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">explain</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">patch</th>
+                <th className="px-4 sm:px-5 py-3.5 font-medium uppercase tracking-wider">validate</th>
               </tr>
             </thead>
             <tbody>
@@ -390,16 +477,16 @@ function ComparisonSection() {
                       : "border-b border-border text-subtle"
                   }
                 >
-                  <td className="px-5 py-3.5">
+                  <td className="px-4 sm:px-5 py-3.5">
                     {row.highlight && (
                       <span className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle" />
                     )}
                     {row.approach}
                   </td>
-                  <td className="px-5 py-3.5">{row.detect ? "✓" : "✗"}</td>
-                  <td className="px-5 py-3.5">{row.explain ? "✓" : "✗"}</td>
-                  <td className="px-5 py-3.5">{row.patch ? "✓" : "✗"}</td>
-                  <td className={row.validate === "✓" ? "px-5 py-3.5 text-success" : "px-5 py-3.5"}>
+                  <td className="px-4 sm:px-5 py-3.5">{row.detect ? "✓" : "✗"}</td>
+                  <td className="px-4 sm:px-5 py-3.5">{row.explain ? "✓" : "✗"}</td>
+                  <td className="px-4 sm:px-5 py-3.5">{row.patch ? "✓" : "✗"}</td>
+                  <td className={row.validate === "✓" ? "px-4 sm:px-5 py-3.5 text-success" : "px-4 sm:px-5 py-3.5"}>
                     {row.validate}
                   </td>
                 </tr>
@@ -454,17 +541,17 @@ const secondaryFeatures = [
 function FeatureGrid() {
   return (
     <section className="border-t border-border">
-      <div className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 sm:py-24">
         <Eyebrow>05 // and everything around it</Eyebrow>
-        <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight md:text-4xl">
+        <h2 className="mt-3 sm:mt-4 max-w-2xl font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
           Built for real repos, not happy paths.
         </h2>
-        <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 sm:mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
           {secondaryFeatures.map((f) => (
-            <div key={f.title} className="bg-elevated p-7">
+            <div key={f.title} className="bg-elevated p-5 sm:p-7">
               <f.icon className="size-5 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-5 font-mono text-sm font-semibold">{f.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-subtle">{f.desc}</p>
+              <h3 className="mt-4 sm:mt-5 font-mono text-sm font-semibold">{f.title}</h3>
+              <p className="mt-2 text-xs sm:text-sm leading-relaxed text-subtle">{f.desc}</p>
             </div>
           ))}
         </div>
@@ -502,26 +589,26 @@ function Faq() {
   const [open, setOpen] = useState<number | null>(0);
   return (
     <section id="faq" className="border-t border-border">
-      <div className="mx-auto max-w-3xl px-6 py-24">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-14 sm:py-24">
         <Eyebrow>06 // faq</Eyebrow>
-        <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+        <h2 className="mt-3 sm:mt-4 font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
           Frequently asked questions
         </h2>
-        <div className="mt-10">
+        <div className="mt-8 sm:mt-10">
           {faqs.map((f, i) => (
             <div key={f.q} className="border-b border-border">
               <button
                 onClick={() => setOpen(open === i ? null : i)}
-                className="flex w-full cursor-pointer items-center justify-between py-5 text-left"
+                className="flex w-full cursor-pointer items-center justify-between py-4 sm:py-5 text-left"
               >
-                <span className="pr-6 text-sm font-medium">{f.q}</span>
+                <span className="pr-4 sm:pr-6 text-xs sm:text-sm font-medium">{f.q}</span>
                 {open === i ? (
                   <Minus className="size-4 shrink-0 text-subtle" />
                 ) : (
                   <Plus className="size-4 shrink-0 text-subtle" />
                 )}
               </button>
-              {open === i && <p className="pb-6 text-sm leading-relaxed text-subtle">{f.a}</p>}
+              {open === i && <p className="pb-5 sm:pb-6 text-xs sm:text-sm leading-relaxed text-subtle">{f.a}</p>}
             </div>
           ))}
         </div>
@@ -538,16 +625,16 @@ function FooterCta() {
   return (
     <section className="relative overflow-hidden border-t border-border">
       <div className="absolute inset-0 bg-dot-grid opacity-40 [mask-image:radial-gradient(ellipse_50%_60%_at_50%_50%,black,transparent)]" />
-      <div className="relative mx-auto max-w-6xl px-6 py-28 text-center">
-        <h2 className="font-display text-3xl font-semibold tracking-tight md:text-5xl">
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6 py-20 sm:py-28 text-center">
+        <h2 className="font-display text-2xl sm:text-3xl md:text-5xl font-semibold tracking-tight">
           {user ? "Ready to scan your next repo?" : "Start securing your code today."}
         </h2>
-        <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-subtle">
+        <p className="mx-auto mt-3 sm:mt-4 max-w-md text-xs sm:text-sm leading-relaxed text-subtle">
           {user
             ? "Connect a GitHub repository and run the full AI pipeline — scan, explain, patch, validate."
             : "Sign up and connect your first GitHub repository. The full AI pipeline runs in minutes."}
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-7 sm:mt-8 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
           {user ? (
             <PillLink to="/dashboard">go to dashboard →</PillLink>
           ) : (
@@ -573,24 +660,24 @@ function Footer() {
   ];
   return (
     <footer className="border-t border-border">
-      <div className="mx-auto max-w-6xl px-6 py-14">
-        <div className="flex flex-col justify-between gap-10 md:flex-row">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14">
+        <div className="flex flex-col justify-between gap-8 md:flex-row">
           <div>
             <Logo />
-            <p className="mt-4 max-w-xs font-mono text-[11px] leading-relaxed text-subtle">
+            <p className="mt-3 sm:mt-4 max-w-xs font-mono text-[11px] leading-relaxed text-subtle">
               detect → explain → patch → validate → learn
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-10 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
             {cols.map((c) => (
               <div key={c.title}>
                 <p className="font-mono text-[11px] uppercase tracking-wider text-subtle">
                   {c.title}
                 </p>
-                <ul className="mt-4 space-y-2.5">
+                <ul className="mt-3 sm:mt-4 space-y-2 sm:space-y-2.5">
                   {c.links.map((l) => (
                     <li key={l}>
-                      <span className="cursor-pointer text-sm text-subtle transition-colors hover:text-foreground">
+                      <span className="cursor-pointer text-xs sm:text-sm text-subtle transition-colors hover:text-foreground">
                         {l}
                       </span>
                     </li>
@@ -600,7 +687,7 @@ function Footer() {
             ))}
           </div>
         </div>
-        <div className="mt-12 flex items-center justify-between border-t border-border pt-6 font-mono text-[11px] text-subtle">
+        <div className="mt-10 sm:mt-12 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border pt-6 font-mono text-[11px] text-subtle">
           <span>© 2026 secureloop</span>
           <span className="flex items-center gap-2">
             <ShieldCheck className="size-3.5" /> all systems validated

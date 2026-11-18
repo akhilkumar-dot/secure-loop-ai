@@ -106,7 +106,12 @@
 
   html {
     scroll-behavior: smooth;
-    zoom: 0.958;
+  }
+
+  @media (min-width: 1024px) {
+    html {
+      zoom: 0.958;
+    }
   }
 
   body {
@@ -114,6 +119,7 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
 
   ::selection {
@@ -170,5 +176,14 @@
   &:hover {
     border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
     box-shadow: 0 0 22px color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+}
+
+/* Hide scrollbar for clean horizontal swipe containers on touch devices */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }

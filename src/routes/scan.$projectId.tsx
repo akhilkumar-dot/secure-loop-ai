@@ -975,11 +975,11 @@ function ScanPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
+        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
           <Logo />
           <Link
             to="/dashboard"
-            className="flex items-center gap-2 font-mono text-xs text-subtle hover:text-foreground"
+            className="flex items-center gap-1.5 font-mono text-xs text-subtle hover:text-foreground"
           >
             <ArrowLeft className="size-3" />
             dashboard
@@ -987,19 +987,19 @@ function ScanPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-4xl px-4 sm:px-6 py-6 sm:py-10">
         <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">scan pipeline</p>
         <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
           {project?.name ?? "…"}
         </h1>
         {project?.repo_url && (
-          <p className="mt-1 font-mono text-xs text-subtle">{project.repo_url}</p>
+          <p className="mt-1 font-mono text-xs text-subtle break-all">{project.repo_url}</p>
         )}
 
         {/* API keys inline config (only before scanning) */}
         {!scanning && !done && (
           <div className="mt-6 rounded-lg border border-border bg-elevated p-4 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
               <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
                 pipeline configuration
               </p>
@@ -1450,11 +1450,11 @@ function ScanPage() {
         ) : null}
 
         {/* Actions */}
-        <div className="mt-6 flex items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
           {!scanning && !done && (
             <button
               onClick={startScan}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-5 py-2.5 font-mono text-xs font-medium text-foreground"
+              className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-elevated px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-foreground"
             >
               <span className="size-1.5 rounded-full bg-accent" />
               <Play className="size-3" />
@@ -1470,7 +1470,7 @@ function ScanPage() {
             <Link
               to="/findings/$projectId"
               params={{ projectId }}
-              className="pill-hover inline-flex items-center gap-2 rounded-full border border-success/40 bg-success/10 px-5 py-2.5 font-mono text-xs font-medium text-success"
+              className="pill-hover inline-flex items-center justify-center gap-2 rounded-full border border-success/40 bg-success/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-success"
             >
               <span className="size-1.5 rounded-full bg-success" />
               view findings →
@@ -1484,7 +1484,7 @@ function ScanPage() {
                 setStage("queued");
                 setError(null);
               }}
-              className="font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
+              className="font-mono text-xs text-subtle hover:text-foreground cursor-pointer py-1"
             >
               run again
             </button>

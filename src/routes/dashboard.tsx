@@ -16,6 +16,8 @@ import {
   Clock,
   Target,
   Sparkles,
+  Menu,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -74,6 +76,7 @@ function DashboardPage() {
   >([]);
   // Mastery and Spaced Repetition state
   const [masteryProfiles, setMasteryProfiles] = useState<MasteryProfileRow[]>([]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -250,9 +253,10 @@ function DashboardPage() {
     <div className="min-h-screen bg-background">
       {/* Nav */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Logo />
-          <div className="flex items-center gap-3">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-2.5 lg:gap-3">
             {(githubUser as Record<string, any>)?.["avatar_url"] && (
               <img
                 src={(githubUser as Record<string, any>)["avatar_url"]}
@@ -260,53 +264,131 @@ function DashboardPage() {
                 className="size-5 rounded-full border border-border"
               />
             )}
-            <span className="hidden font-mono text-xs text-subtle sm:block">
+            <span className="hidden font-mono text-xs text-subtle lg:block">
               {(githubUser as Record<string, any>)?.["preferred_username"]
                 ? `@${(githubUser as Record<string, any>)["preferred_username"]}`
                 : user?.email}
             </span>
             <Link
               to="/learn"
-              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+              className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
               <Brain className="size-3 text-accent" />
               learn
             </Link>
             <Link
               to="/benchmark"
-              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+              className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
               <Clock className="size-3 text-accent" />
               benchmark
             </Link>
             <Link
               to="/score"
-              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+              className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
               <ShieldCheck className="size-3 text-accent" />
               score
             </Link>
             <Link
               to="/settings"
-              className="pill-hover inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+              className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
               <Settings className="size-3" />
               settings
             </Link>
             <button
               onClick={signOut}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
+              className="pill-hover inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 font-mono text-[11px] text-subtle hover:text-foreground"
             >
               <LogOut className="size-3" />
               sign out
             </button>
           </div>
+
+          {/* Mobile Navigation Controls */}
+          <div className="flex md:hidden items-center gap-2">
+            {(githubUser as Record<string, any>)?.["avatar_url"] && (
+              <img
+                src={(githubUser as Record<string, any>)["avatar_url"]}
+                alt="GitHub"
+                className="size-5 rounded-full border border-border"
+              />
+            )}
+            <button
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              aria-label="Toggle navigation menu"
+              className="flex size-9 items-center justify-center rounded-lg border border-border bg-elevated text-subtle hover:text-foreground cursor-pointer transition-colors"
+            >
+              {mobileNavOpen ? <X className="size-4" /> : <Menu className="size-4" />}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile Dropdown Sheet */}
+        {mobileNavOpen && (
+          <div className="md:hidden border-b border-border bg-elevated/95 backdrop-blur px-5 py-3.5 space-y-2 font-mono text-xs animate-in slide-in-from-top-2">
+            <div className="pb-2 border-b border-border text-[11px] text-subtle">
+              Signed in as:{" "}
+              <strong className="text-foreground">
+                {(githubUser as Record<string, any>)?.["preferred_username"]
+                  ? `@${(githubUser as Record<string, any>)["preferred_username"]}`
+                  : user?.email}
+              </strong>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Link
+                to="/learn"
+                onClick={() => setMobileNavOpen(false)}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background p-2.5 text-subtle hover:text-foreground"
+              >
+                <Brain className="size-3.5 text-accent" />
+                <span>learn</span>
+              </Link>
+              <Link
+                to="/benchmark"
+                onClick={() => setMobileNavOpen(false)}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background p-2.5 text-subtle hover:text-foreground"
+              >
+                <Clock className="size-3.5 text-accent" />
+                <span>benchmark</span>
+              </Link>
+              <Link
+                to="/score"
+                onClick={() => setMobileNavOpen(false)}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background p-2.5 text-subtle hover:text-foreground"
+              >
+                <ShieldCheck className="size-3.5 text-accent" />
+                <span>score</span>
+              </Link>
+              <Link
+                to="/settings"
+                onClick={() => setMobileNavOpen(false)}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background p-2.5 text-subtle hover:text-foreground"
+              >
+                <Settings className="size-3.5" />
+                <span>settings</span>
+              </Link>
+            </div>
+            <div className="pt-2 border-t border-border">
+              <button
+                onClick={() => {
+                  signOut();
+                  setMobileNavOpen(false);
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-danger/30 bg-danger/10 py-2 text-danger font-medium cursor-pointer"
+              >
+                <LogOut className="size-3.5" />
+                <span>sign out</span>
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
         {/* Header row */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
               your projects
@@ -316,14 +398,14 @@ function DashboardPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={loadProjects}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-subtle hover:text-foreground"
+              className="pill-hover inline-flex cursor-pointer items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-3 sm:px-4 py-1.5 sm:py-2 font-mono text-[11px] sm:text-xs text-subtle hover:text-foreground"
             >
               <RefreshCw className="size-3" />
               refresh
             </button>
             <button
               onClick={() => setShowNewProject(!showNewProject)}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-foreground"
+              className="pill-hover inline-flex cursor-pointer items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-3 sm:px-4 py-1.5 sm:py-2 font-mono text-[11px] sm:text-xs text-foreground"
             >
               <span className="size-1.5 rounded-full bg-accent" />
               <Plus className="size-3" />
@@ -657,92 +739,173 @@ function DashboardPage() {
               </button>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border">
-              <table className="w-full font-mono text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-elevated text-left text-subtle">
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">project</th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">last scan</th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">
-                      open findings
-                    </th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider">score</th>
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider" />
-                    <th className="px-5 py-3 font-medium uppercase tracking-wider" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {projects.map((p) => (
-                    <tr
-                      key={p.id}
-                      className="border-b border-border transition-colors hover:bg-elevated/50 cursor-pointer"
-                      onClick={() =>
-                        navigate({
-                          to: "/findings/$projectId",
-                          params: { projectId: p.id },
-                        })
-                      }
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-semibold text-foreground">{p.name}</span>
-                          {p.repo_url && (
-                            <span className="text-[10px] text-subtle/60">{p.repo_url}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
+            <>
+              {/* Desktop table view */}
+              <div className="hidden md:block overflow-x-auto rounded-lg border border-border">
+                <table className="w-full font-mono text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-elevated text-left text-subtle">
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider">project</th>
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider">last scan</th>
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider">
+                        open findings
+                      </th>
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider">score</th>
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider" />
+                      <th className="px-5 py-3 font-medium uppercase tracking-wider" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((p) => (
+                      <tr
+                        key={p.id}
+                        className="border-b border-border transition-colors hover:bg-elevated/50 cursor-pointer"
+                        onClick={() =>
+                          navigate({
+                            to: "/findings/$projectId",
+                            params: { projectId: p.id },
+                          })
+                        }
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-foreground">{p.name}</span>
+                            {p.repo_url && (
+                              <span className="text-[10px] text-subtle/60">{p.repo_url}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span
+                            className={
+                              p.lastScanStatus === "done"
+                                ? "text-success"
+                                : p.lastScanStatus === "failed"
+                                  ? "text-danger"
+                                  : p.lastScanStatus === "—"
+                                    ? "text-subtle"
+                                    : "text-accent"
+                            }
+                          >
+                            {p.lastScanStatus}
+                          </span>
+                          <span className="ml-2 text-subtle">{p.lastScanAt}</span>
+                        </td>
+                        <td className="px-5 py-4 text-foreground">{p.findingsCount}</td>
+                        <td className="px-5 py-4">
+                          <ScoreBadge score={p.score} size="sm" />
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <Link
+                              to="/scan/$projectId"
+                              params={{ projectId: p.id }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-accent hover:underline"
+                            >
+                              scan
+                            </Link>
+                            <ChevronRight className="size-3 text-subtle/40" />
+                          </div>
+                        </td>
+                        <td className="px-3 py-4">
+                          <button
+                            onClick={(e) => deleteProject(p.id, p.name, e)}
+                            disabled={deletingId === p.id}
+                            title="Delete project"
+                            className="flex cursor-pointer items-center justify-center rounded-md p-1.5 text-subtle/40 transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                          >
+                            {deletingId === p.id ? (
+                              <RefreshCw className="size-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile card view */}
+              <div className="md:hidden space-y-3">
+                {projects.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() =>
+                      navigate({
+                        to: "/findings/$projectId",
+                        params: { projectId: p.id },
+                      })
+                    }
+                    className="rounded-lg border border-border bg-elevated p-4 space-y-3 cursor-pointer transition-colors hover:border-accent/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-foreground truncate">{p.name}</p>
+                        {p.repo_url && (
+                          <p className="font-mono text-[10px] text-subtle/70 truncate mt-0.5">
+                            {p.repo_url}
+                          </p>
+                        )}
+                      </div>
+                      <ScoreBadge score={p.score} size="sm" />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] pt-1 border-t border-border/50 text-subtle">
+                      <div>
+                        <span>last scan: </span>
                         <span
                           className={
                             p.lastScanStatus === "done"
-                              ? "text-success"
+                              ? "text-success font-medium"
                               : p.lastScanStatus === "failed"
                                 ? "text-danger"
-                                : p.lastScanStatus === "—"
-                                  ? "text-subtle"
-                                  : "text-accent"
+                                : "text-subtle"
                           }
                         >
                           {p.lastScanStatus}
                         </span>
-                        <span className="ml-2 text-subtle">{p.lastScanAt}</span>
-                      </td>
-                      <td className="px-5 py-4 text-foreground">{p.findingsCount}</td>
-                      <td className="px-5 py-4">
-                        <ScoreBadge score={p.score} size="sm" />
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <Link
-                            to="/scan/$projectId"
-                            params={{ projectId: p.id }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-accent hover:underline"
-                          >
-                            scan
-                          </Link>
-                          <ChevronRight className="size-3 text-subtle/40" />
-                        </div>
-                      </td>
-                      <td className="px-3 py-4">
-                        <button
-                          onClick={(e) => deleteProject(p.id, p.name, e)}
-                          disabled={deletingId === p.id}
-                          title="Delete project"
-                          className="flex cursor-pointer items-center justify-center rounded-md p-1.5 text-subtle/40 transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                        <span className="ml-1 text-subtle/60">({p.lastScanAt})</span>
+                      </div>
+                      <div>
+                        <span>open findings: </span>
+                        <strong className="text-foreground">{p.findingsCount}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to="/scan/$projectId"
+                          params={{ projectId: p.id }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="pill-hover inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[11px] text-accent font-medium"
                         >
-                          {deletingId === p.id ? (
-                            <RefreshCw className="size-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-3.5" />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          scan
+                        </Link>
+                        <span className="font-mono text-[11px] text-subtle flex items-center gap-0.5">
+                          findings <ChevronRight className="size-3" />
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => deleteProject(p.id, p.name, e)}
+                        disabled={deletingId === p.id}
+                        title="Delete project"
+                        className="flex cursor-pointer items-center justify-center rounded-md p-1.5 text-subtle/40 transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                      >
+                        {deletingId === p.id ? (
+                          <RefreshCw className="size-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </main>

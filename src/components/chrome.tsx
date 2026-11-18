@@ -33,7 +33,7 @@ export function Pill({
   return (
     <button
       className={cn(
-        "pill-hover inline-flex cursor-pointer items-center gap-2.5 rounded-full border px-5 py-2.5 font-mono text-xs font-medium tracking-wide",
+        "pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border px-3.5 py-2 sm:px-5 sm:py-2.5 font-mono text-[11px] sm:text-xs font-medium tracking-wide",
         variant === "solid"
           ? "border-border bg-elevated text-foreground"
           : "border-border bg-transparent text-subtle hover:text-foreground",
@@ -43,7 +43,7 @@ export function Pill({
     >
       {dot && (
         <span
-          className={cn("size-1.5 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
+          className={cn("size-1.5 shrink-0 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
         />
       )}
       {children}
@@ -71,7 +71,7 @@ export function PillLink({
       to={to}
       {...(params ? { params } : {})}
       className={cn(
-        "pill-hover inline-flex items-center gap-2.5 rounded-full border px-5 py-2.5 font-mono text-xs font-medium tracking-wide",
+        "pill-hover inline-flex items-center justify-center gap-2 rounded-full border px-3.5 py-2 sm:px-5 sm:py-2.5 font-mono text-[11px] sm:text-xs font-medium tracking-wide",
         variant === "solid"
           ? "border-border bg-elevated text-foreground"
           : "border-border bg-transparent text-subtle hover:text-foreground",
@@ -80,7 +80,7 @@ export function PillLink({
     >
       {dot && (
         <span
-          className={cn("size-1.5 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
+          className={cn("size-1.5 shrink-0 rounded-full", variant === "solid" ? "bg-accent" : "bg-subtle")}
         />
       )}
       {children}
@@ -109,14 +109,16 @@ export function TerminalWindow({
 }) {
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border bg-elevated", className)}>
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        <span className="size-2.5 rounded-full bg-border" />
-        <span className="size-2.5 rounded-full bg-border" />
-        <span className="size-2.5 rounded-full bg-border" />
-        <span className="mx-auto font-mono text-[11px] text-subtle">{title}</span>
-        <span className="w-14" />
+      <div className="flex items-center gap-1.5 sm:gap-2 border-b border-border px-3 sm:px-4 py-2 sm:py-2.5">
+        <span className="size-2 sm:size-2.5 shrink-0 rounded-full bg-border" />
+        <span className="size-2 sm:size-2.5 shrink-0 rounded-full bg-border" />
+        <span className="size-2 sm:size-2.5 shrink-0 rounded-full bg-border" />
+        <span className="mx-auto truncate px-2 text-center font-mono text-[10px] sm:text-[11px] text-subtle max-w-[170px] sm:max-w-md">
+          {title}
+        </span>
+        <span className="w-6 sm:w-14 shrink-0" />
       </div>
-      <div className={cn("overflow-x-auto p-4 font-mono text-xs leading-relaxed", bodyClassName)}>
+      <div className={cn("overflow-x-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs leading-relaxed", bodyClassName)}>
         {children}
       </div>
     </div>
@@ -136,7 +138,7 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 sm:px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] uppercase tracking-wider",
         severityStyles[severity],
       )}
     >
@@ -161,7 +163,7 @@ export function StatusBadge({ status }: { status: FindingStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 sm:px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] uppercase tracking-wider",
         statusStyles[status],
       )}
     >
@@ -175,12 +177,12 @@ export function StatusBadge({ status }: { status: FindingStatus }) {
 
 export function DiffView({ lines }: { lines: DiffLine[] }) {
   return (
-    <div className="font-mono text-xs leading-relaxed">
+    <div className="overflow-x-auto font-mono text-[11px] sm:text-xs leading-relaxed">
       {lines.map((l, i) => (
         <div
           key={i}
           className={cn(
-            "whitespace-pre px-3 py-0.5",
+            "whitespace-pre px-2.5 sm:px-3 py-0.5",
             l.type === "add" && "bg-success/10 text-success",
             l.type === "del" && "bg-danger/10 text-danger",
             l.type === "hunk" && "text-subtle",
@@ -198,18 +200,18 @@ export function DiffView({ lines }: { lines: DiffLine[] }) {
 
 export function CodeView({ lines }: { lines: { n: number; code: string; vuln?: boolean }[] }) {
   return (
-    <div className="font-mono text-xs leading-relaxed">
+    <div className="overflow-x-auto font-mono text-[11px] sm:text-xs leading-relaxed">
       {lines.map((l) => (
         <div
           key={l.n}
           className={cn(
-            "flex whitespace-pre px-3 py-0.5",
+            "flex whitespace-pre px-2.5 sm:px-3 py-0.5",
             l.vuln ? "bg-danger/10 text-foreground" : "text-foreground/70",
           )}
         >
-          <span className="w-8 shrink-0 select-none text-right text-subtle/60">{l.n}</span>
-          <span className="pl-4">
-            {l.vuln && <span className="mr-2 text-danger">▸</span>}
+          <span className="w-7 sm:w-8 shrink-0 select-none text-right text-subtle/60">{l.n}</span>
+          <span className="pl-2.5 sm:pl-4">
+            {l.vuln && <span className="mr-1.5 sm:mr-2 text-danger">▸</span>}
             {l.code}
           </span>
         </div>

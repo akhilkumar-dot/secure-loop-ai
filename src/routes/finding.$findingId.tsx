@@ -506,13 +506,13 @@ function FindingDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Logo />
           <button
             onClick={() =>
               navigate({ to: "/findings/$projectId", params: { projectId: finding.project_id } })
             }
-            className="flex items-center gap-2 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
+            className="flex items-center gap-1.5 font-mono text-xs text-subtle hover:text-foreground cursor-pointer"
           >
             <ArrowLeft className="size-3" />
             back to findings
@@ -520,19 +520,19 @@ function FindingDetailPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
         {/* Finding header */}
-        <div className="flex flex-wrap items-start gap-3">
+        <div className="flex flex-wrap items-start gap-2.5 sm:gap-3">
           <SeverityBadge severity={finding.severity} />
           <StatusBadge status={finding.status as any} />
           <span className="font-mono text-xs text-subtle">{finding.cwe}</span>
           <span className="font-mono text-xs text-subtle uppercase">{finding.tool}</span>
         </div>
-        <h1 className="mt-3 font-display text-xl font-semibold tracking-tight">
+        <h1 className="mt-3 font-display text-lg sm:text-xl font-semibold tracking-tight break-all">
           {finding.file_path}
           {finding.line_start && <span className="text-subtle">:{finding.line_start}</span>}
         </h1>
-        <p className="mt-1 font-mono text-xs text-subtle">{finding.raw_message}</p>
+        <p className="mt-1 font-mono text-xs text-subtle leading-relaxed">{finding.raw_message}</p>
 
         {/* Two-column split view */}
         <div className="mt-8 grid gap-6 md:grid-cols-2">
@@ -552,8 +552,8 @@ function FindingDetailPage() {
 
           {/* Right: Explanation */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+              <div className="flex items-center gap-2.5">
                 <p className="font-mono text-[10px] uppercase tracking-wider text-subtle">
                   ai explanation
                 </p>
@@ -585,7 +585,7 @@ function FindingDetailPage() {
               <button
                 onClick={() => handleRegenerateAi()}
                 disabled={regenerating}
-                className="pill-hover inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[11px] text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                className="pill-hover self-start sm:self-auto inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[11px] text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
               >
                 <Sparkles className={`size-3 ${regenerating ? "animate-spin" : ""}`} />
                 {regenerating
@@ -945,12 +945,12 @@ function FindingDetailPage() {
 
         {/* Accept / Reject / Dismiss */}
         {finding.patch && !decisionDone && finding.status !== "dismissed" && (
-          <div className="mt-6 flex items-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:gap-3">
             {canAccept ? (
               <button
                 onClick={() => makeDecision("accept")}
                 disabled={deciding}
-                className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-success/40 bg-success/10 px-5 py-2.5 font-mono text-xs font-medium text-success disabled:opacity-50"
+                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-success/40 bg-success/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-success disabled:opacity-50"
               >
                 <CheckCircle2 className="size-3.5" />
                 accept patch
@@ -959,7 +959,7 @@ function FindingDetailPage() {
               <button
                 onClick={() => makeDecision("accept", true)}
                 disabled={deciding}
-                className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-5 py-2.5 font-mono text-xs font-medium text-warning disabled:opacity-50"
+                className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-warning disabled:opacity-50"
               >
                 <AlertCircle className="size-3.5" />
                 override & accept
@@ -968,7 +968,7 @@ function FindingDetailPage() {
             <button
               onClick={() => makeDecision("reject")}
               disabled={deciding}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-5 py-2.5 font-mono text-xs font-medium text-danger disabled:opacity-50"
+              className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-danger disabled:opacity-50"
             >
               <XCircle className="size-3.5" />
               reject
@@ -976,7 +976,7 @@ function FindingDetailPage() {
             <button
               onClick={dismissFalsePositive}
               disabled={deciding}
-              className="pill-hover inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-elevated px-5 py-2.5 font-mono text-xs font-medium text-subtle hover:text-foreground disabled:opacity-50"
+              className="pill-hover inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-elevated px-4 sm:px-5 py-2 sm:py-2.5 font-mono text-xs font-medium text-subtle hover:text-foreground disabled:opacity-50"
             >
               <XCircle className="size-3.5 text-warning" />
               dismiss false positive
@@ -1137,13 +1137,15 @@ function ValidationCheck({
   count?: number;
 }) {
   return (
-    <div className="p-4 flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-subtle">{label}</span>
+    <div className="p-2.5 sm:p-4 flex flex-col gap-1">
+      <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-subtle leading-tight">
+        {label}
+      </span>
       {na ? (
         <span className="font-mono text-xs text-subtle">n/a</span>
       ) : (
         <span
-          className={`font-mono text-sm font-semibold ${pass ? "text-success" : "text-danger"}`}
+          className={`font-mono text-xs sm:text-sm font-semibold ${pass ? "text-success" : "text-danger"}`}
         >
           {count !== undefined ? count : pass ? "✓" : "✗"}
         </span>
