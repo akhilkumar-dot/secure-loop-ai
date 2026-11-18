@@ -26,6 +26,8 @@ import {
 } from "../rate-limiter";
 import { getCachedAiOutput, saveCachedAiOutput, CURRENT_PROMPT_VERSION } from "../ai-cache";
 import { supabase } from "../supabase";
+import { CohereProvider, DEFAULT_COHERE_STAGE_MODELS } from "../cohere";
+import { filterChatModels, resolveCandidateGroqModels } from "../groq";
 
 describe("AI Provider Detection", () => {
   it("correctly identifies Google Gemini keys", () => {
@@ -258,5 +260,82 @@ describe("Security Guarantee: Keys Never Transmitted to Supabase", () => {
     expect(payloadString).not.toContain(secretKey);
     expect(payloadString).not.toContain("api_key");
     expect(payloadString).not.toContain("apiKey");
+  });
+});
+
+describe("Cohere Active Models & 404 Fallback", () => {
+  it("does not include retired models command-r-plus or command-r in default stage models", () => {
+    for (const [stage, models] of Object.entries(DEFAULT_COHERE_STAGE_MODELS)) {
+      expect(models).not.toContain("command-r-plus");
+      expect(models).not.toContain("command-r");
+    }
+  });
+
+  it("falls back to next candidate model when a model returns HTTP 404 (removed)", async () => {
+    const originalFetch = global.fetch;
+    let callCount = 0;
+    const modelsCalled: string[] = [];
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, init: any) => {
+      callCount++;
+      const body = JSON.parse(init.body);
+      modelsCalled.push(body.model);
+
+      if (body.model === "command-r-plus-08-2024") {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ message: "model 'command-r-plus-08-2024' not found" }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Verified response from secondary candidate" }],
+          },
+        }),
+      };
+    }) as any;
+
+    try {
+      const provider = new CohereProvider({ apiKey: "test-cohere-key" });
+      const res = await provider.generateChatCompletion(
+        [{ role: "user", content: "hello" }],
+        "patch_generation",
+      );
+
+      expect(res.content).toBe("Verified response from secondary candidate");
+      expect(res.modelUsed).toBe("command-r-08-2024");
+      expect(modelsCalled).toEqual(["command-r-plus-08-2024", "command-r-08-2024"]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe("Groq Model Filtering (No non-JSON or Allam models)", () => {
+  it("filters out allam and non-JSON models from candidate lists", () => {
+    const rawList = [
+      "whisper-large-v3",
+      "openai/gpt-oss-120b",
+      "allam-2-7b",
+      "prompt-guard",
+      "qwen/qwen3.6-27b",
+    ];
+    const filtered = filterChatModels(rawList);
+    expect(filtered).toEqual(["openai/gpt-oss-120b", "qwen/qwen3.6-27b"]);
+    expect(filtered).not.toContain("allam-2-7b");
+  });
+
+  it("resolveCandidateGroqModels strips allam even if present in input list", () => {
+    const { models } = resolveCandidateGroqModels([
+      "allam-2-7b",
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-20b",
+    ]);
+    expect(models).not.toContain("allam-2-7b");
+    expect(models).toContain("openai/gpt-oss-120b");
   });
 });

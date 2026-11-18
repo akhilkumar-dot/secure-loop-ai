@@ -22,7 +22,7 @@ import {
   type StageName,
 } from "./stage-schemas";
 
-export const GROQ_MODELS_CACHE_KEY = "sl_groq_live_models";
+export const GROQ_MODELS_CACHE_KEY = "sl_groq_live_models_v2";
 
 /**
  * Priority order for active Groq models in 2026.
@@ -89,6 +89,27 @@ function extractJsonSnippet(text: string): string {
 }
 
 /**
+ * Excludes audio models, embeddings, guardrail models, and non-JSON models like allam-2-7b.
+ */
+export function filterChatModels(rawModelIds: string[]): string[] {
+  return rawModelIds.filter((id) => {
+    if (!id || typeof id !== "string") return false;
+    const lower = id.toLowerCase();
+    if (
+      lower.includes("whisper") ||
+      lower.includes("prompt-guard") ||
+      lower.includes("embedding") ||
+      lower.includes("distil-whisper") ||
+      lower.includes("allam") ||
+      lower.includes("guard")
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
  * Fetches live models directly from Groq API with user's own API key.
  * Caches in sessionStorage for the tab session.
  * Excludes audio models, embeddings, guardrail models, and non-JSON models like allam-2-7b.
@@ -107,7 +128,10 @@ export async function fetchLiveGroqModels(apiKey: string): Promise<string[]> {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed as string[];
+          const filtered = filterChatModels(parsed as string[]);
+          if (filtered.length > 0) {
+            return filtered;
+          }
         }
       }
     } catch {
@@ -143,22 +167,7 @@ export async function fetchLiveGroqModels(apiKey: string): Promise<string[]> {
   const rawList: Array<{ id: string }> = Array.isArray(data?.data) ? data.data : [];
 
   // Exclude audio models, guardrail moderation models, embeddings, and non-JSON models (e.g. allam-2-7b)
-  const chatModels = rawList
-    .map((m) => m.id)
-    .filter((id) => {
-      if (!id || typeof id !== "string") return false;
-      const lower = id.toLowerCase();
-      if (
-        lower.includes("whisper") ||
-        lower.includes("prompt-guard") ||
-        lower.includes("embedding") ||
-        lower.includes("distil-whisper") ||
-        lower.includes("allam")
-      ) {
-        return false;
-      }
-      return true;
-    });
+  const chatModels = filterChatModels(rawList.map((m) => m.id));
 
   if (chatModels.length === 0) {
     throw new Error("No live chat models found for your Groq account.");
@@ -185,19 +194,20 @@ export function resolveCandidateGroqModels(liveModels: string[]): {
   chosenModel: string;
   isFallback: boolean;
 } {
-  if (!liveModels || liveModels.length === 0) {
+  const cleanLiveModels = filterChatModels(liveModels || []);
+  if (!cleanLiveModels || cleanLiveModels.length === 0) {
     throw new Error("Live Groq model list is empty. Cannot select a model.");
   }
 
   const preferredInLive: string[] = [];
   for (const pref of GROQ_PREFERRED_MODELS) {
-    if (liveModels.includes(pref)) {
+    if (cleanLiveModels.includes(pref)) {
       preferredInLive.push(pref);
     }
   }
 
   if (preferredInLive.length > 0) {
-    const otherLive = liveModels.filter((m) => !preferredInLive.includes(m));
+    const otherLive = cleanLiveModels.filter((m) => !preferredInLive.includes(m));
     return {
       models: [...preferredInLive, ...otherLive],
       chosenModel: preferredInLive[0]!,
@@ -207,8 +217,8 @@ export function resolveCandidateGroqModels(liveModels: string[]): {
 
   // None of the preferred IDs are live; pick the first available chat model
   return {
-    models: [...liveModels],
-    chosenModel: liveModels[0]!,
+    models: [...cleanLiveModels],
+    chosenModel: cleanLiveModels[0]!,
     isFallback: true,
   };
 }

@@ -98,7 +98,12 @@ export function isTransientError(errorText: string): boolean {
     lower.includes("503") ||
     lower.includes("service unavailable") ||
     lower.includes("timeout") ||
-    lower.includes("deadline exceeded")
+    lower.includes("deadline exceeded") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("network error") ||
+    lower.includes("networkerror") ||
+    lower.includes("econnreset") ||
+    lower.includes("etimedout")
   );
 }
 

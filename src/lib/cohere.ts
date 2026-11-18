@@ -27,22 +27,20 @@ export interface CohereConfig {
 
 export const DEFAULT_COHERE_STAGE_MODELS: Record<StageName, string[]> = {
   patch_generation: [
-    "command-r-plus",
     "command-r-plus-08-2024",
-    "command-r",
     "command-r-08-2024",
+    "command-r7b-12-2024",
     "command-nightly",
   ],
   explanation_generation: [
-    "command-r-plus",
     "command-r-plus-08-2024",
-    "command-r",
     "command-r-08-2024",
+    "command-r7b-12-2024",
     "command-nightly",
   ],
-  triage: ["command-r", "command-nightly"],
-  vulnerability_validation: ["command-r", "command-nightly"],
-  default: ["command-r-plus", "command-r", "command-nightly"],
+  triage: ["command-r-08-2024", "command-r7b-12-2024", "command-nightly"],
+  vulnerability_validation: ["command-r-08-2024", "command-r7b-12-2024", "command-nightly"],
+  default: ["command-r-plus-08-2024", "command-r-08-2024", "command-nightly"],
 };
 
 export class CohereProvider {
@@ -98,7 +96,6 @@ export class CohereProvider {
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
             "Content-Type": "application/json",
-            "X-Client-Name": "SecureLoop-AI",
           },
           body: JSON.stringify(body),
         });
@@ -107,7 +104,13 @@ export class CohereProvider {
           const status = res.status;
           const rawText = await res.text();
           const text = redactKeys(rawText, [this.apiKey]);
-          if (status === 429 || status === 402 || status >= 500) {
+          if (
+            status === 404 ||
+            status === 400 ||
+            status === 429 ||
+            status === 402 ||
+            status >= 500
+          ) {
             console.warn(
               `[Cohere Fallback] Model ${model} returned HTTP ${status}: ${text}. Falling back to next candidate model...`,
             );
@@ -136,13 +139,7 @@ export class CohereProvider {
         return { content, modelUsed: model };
       } catch (err: any) {
         errorsRecorded[model] = redactKeys(err.message || String(err), [this.apiKey]);
-        if (
-          err.message?.includes("429") ||
-          err.message?.includes("402") ||
-          err.message?.includes("50")
-        ) {
-          continue;
-        }
+        continue;
       }
     }
 

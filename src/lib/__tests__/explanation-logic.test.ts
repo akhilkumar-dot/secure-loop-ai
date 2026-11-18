@@ -88,6 +88,27 @@ describe("Step 1: Snippet Extraction and Verification", () => {
     ).toThrow(/Snippet verification mismatch at line 12/);
   });
 
+  it("verifies snippets where scanner matched_text masked secrets with asterisks", () => {
+    // Real test cases from secure-loop-ai scan
+    const fileWithSecret1 =
+      "const express = require('express');\napp.use(session({\n  secret: 'app-secret',\n  resave: false\n}));";
+    expect(() => extractAndVerifySnippet(fileWithSecret1, 3, "secret: '***',", 2)).not.toThrow();
+
+    const fileWithSecret2 =
+      "app.use(session({\n  name: 'sess_id',\n  secret: 'super-secret-key-12345',\n  cookie: {}\n}));";
+    expect(() => extractAndVerifySnippet(fileWithSecret2, 3, "secret: '***',", 2)).not.toThrow();
+
+    const fileWithPassword1 =
+      "const connection = mysql.createConnection({\n  host: 'db.prod.internal',\n  user: 'admin',\n  password: 'ProductionSecretPassword2026!'\n});";
+    expect(() => extractAndVerifySnippet(fileWithPassword1, 4, "password: '***'", 2)).not.toThrow();
+
+    const fileWithPassword2 =
+      "  user: 'admin',\n- password: 'ProductionSecretPassword2026!'\n+ password: process.env.DB_PASSWORD";
+    expect(() =>
+      extractAndVerifySnippet(fileWithPassword2, 2, "- password: '***'", 2),
+    ).not.toThrow();
+  });
+
   it("throws when fileContent is empty", () => {
     expect(() => extractAndVerifySnippet("", 5, undefined, 10)).toThrow(
       /File content is empty or could not be retrieved/,

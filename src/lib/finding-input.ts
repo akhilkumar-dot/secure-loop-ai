@@ -35,6 +35,51 @@ export function normalizeLine(line: string): string {
 }
 
 /**
+ * Checks if actual line code matches expected matched_text,
+ * taking into account potential credential masking (e.g. quotes replaced by '***' or wildcard ***).
+ */
+export function checkSnippetMatch(actualLineCode: string, expectedMatchedText: string): boolean {
+  const normActual = normalizeLine(actualLineCode);
+  const normExpected = normalizeLine(expectedMatchedText);
+
+  // 1. Direct equality or substring match
+  if (
+    normActual === normExpected ||
+    normActual.includes(normExpected) ||
+    normExpected.includes(normActual)
+  ) {
+    return true;
+  }
+
+  // 2. If expected text was masked/redacted with '***', check against masked actual line
+  if (normExpected.includes("***")) {
+    // Check quote masking like in sast.ts: replace string literal contents >= 3 chars with ***
+    const maskedActual = normActual.replace(/(['"`])[^'"`]{3,}[^'"`]*\1/g, "$1***$1");
+    if (
+      maskedActual === normExpected ||
+      maskedActual.includes(normExpected) ||
+      normExpected.includes(maskedActual)
+    ) {
+      return true;
+    }
+
+    // 3. General wildcard match where *** (or \*{3,}) matches any characters
+    const escapedExpected = normExpected.replace(/[-[\]{}()+?.,\\^$|#\s]/g, "\\$&");
+    const wildcardPattern = escapedExpected.replace(/\\\*\\\*\\\*+/g, ".*");
+    try {
+      const reg = new RegExp(`^${wildcardPattern}$`);
+      if (reg.test(normActual)) return true;
+      const subReg = new RegExp(wildcardPattern);
+      if (subReg.test(normActual)) return true;
+    } catch {
+      // Ignore regex compile error and fallback
+    }
+  }
+
+  return false;
+}
+
+/**
  * Extracts a ~10 line context window either side of the flagged line from real file content.
  * Verifies that the code on the flagged line matches what the scanner matched.
  * Throws a clear descriptive error if the snippet cannot be verified against the scan.
@@ -64,17 +109,13 @@ export function extractAndVerifySnippet(
   const zeroIndex = targetLine - 1;
   const actualLineCode = lines[zeroIndex] ?? "";
 
-  // Verification against scanner reported matched_text
+  // Verification against scanner reported matched_text (including redacted secrets)
   if (expectedMatchedText && expectedMatchedText.trim().length > 0) {
-    const normActual = normalizeLine(actualLineCode);
-    const normExpected = normalizeLine(expectedMatchedText);
-
-    const matches =
-      normActual === normExpected ||
-      normActual.includes(normExpected) ||
-      normExpected.includes(normActual);
+    const matches = checkSnippetMatch(actualLineCode, expectedMatchedText);
 
     if (!matches) {
+      const normActual = normalizeLine(actualLineCode);
+      const normExpected = normalizeLine(expectedMatchedText);
       throw new Error(
         `Snippet verification mismatch at line ${targetLine}. File content on line is ${JSON.stringify(
           normActual,
