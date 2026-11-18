@@ -3,6 +3,8 @@
  * Uses OpenAI API (https://api.openai.com/v1/chat/completions) with multi-model fallback.
  */
 
+import { redactKeys } from "./ai-provider-detector";
+
 export class OpenAIProvidersExhaustedError extends Error {
   isExhausted = true;
   constructor(stage: string, errors: Record<string, string>) {
@@ -41,7 +43,11 @@ export class OpenAIProvider {
   async generateChatCompletion(
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
     stage: StageName = "default",
-    options: { temperature?: number; responseFormatJson?: boolean } = {},
+    options: {
+      temperature?: number;
+      responseFormatJson?: boolean;
+      responseSchema?: Record<string, unknown>;
+    } = {},
   ): Promise<{ content: string; modelUsed: string }> {
     if (!this.apiKey) {
       throw new Error(
@@ -82,7 +88,8 @@ export class OpenAIProvider {
 
         if (!res.ok) {
           const status = res.status;
-          const text = await res.text();
+          const rawText = await res.text();
+          const text = redactKeys(rawText, [this.apiKey]);
           if (status === 429 || status === 402 || status >= 500) {
             console.warn(
               `[OpenAI Fallback] Model ${model} returned HTTP ${status}: ${text}. Falling back to next candidate model...`,
@@ -99,7 +106,7 @@ export class OpenAIProvider {
         console.log(`[OpenAI Success] Served by model: ${model}`);
         return { content, modelUsed: model };
       } catch (err: any) {
-        errorsRecorded[model] = err.message || String(err);
+        errorsRecorded[model] = redactKeys(err.message || String(err), [this.apiKey]);
         if (
           err.message?.includes("429") ||
           err.message?.includes("402") ||

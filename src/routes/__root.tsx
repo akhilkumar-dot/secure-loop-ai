@@ -79,6 +79,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      {
+        httpEquiv: "Content-Security-Policy",
+        content:
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self' https://*.supabase.co https://generativelanguage.googleapis.com https://api.groq.com https://openrouter.ai https://api.openai.com https://api.cohere.com https://api.github.com;",
+      },
       { title: "SecureLoop — Ship secure code, not just detected bugs" },
       {
         name: "description",

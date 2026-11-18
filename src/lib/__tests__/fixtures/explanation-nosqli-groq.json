@@ -1,0 +1,23 @@
+{
+  "_comment": "Provider: Groq, Model: llama-3.3-70b-versatile, Date: 2026-11-18, Finding: sqli-02-nosql.js (javascript.mongodb.nosqli.nosql-injection-req-body)",
+  "what_it_is": {
+    "technical": "Unsanitized client input from req.body is passed directly into a MongoDB query operator like db.collection.find(). An attacker can supply a nested query object containing MongoDB operators like $gt or $ne to bypass authentication checks.",
+    "simplified": "The server accepts an entire object from the user and hands it straight to the database search. An attacker can send special query symbols instead of a normal password to trick the database into matching any user."
+  },
+  "why_it_happened": {
+    "technical": "Express body-parser parses JSON payloads into JavaScript objects. Passing req.body.password directly into a MongoDB query allows query-operator injection because MongoDB accepts operator objects in place of literal values.",
+    "simplified": "The code trusted whatever the user sent in the request body without checking if it was just a regular string."
+  },
+  "how_fix_works": {
+    "technical": "Sanitize query keys using mongo-sanitize or validate that input properties are strictly strings using typeof req.body.password === 'string' before passing them to the database query.",
+    "simplified": "Check that the input is an ordinary piece of text and remove any database operators before running the search."
+  },
+  "attack_idea": "An attacker sends a JSON payload with password set to {\"$gt\": \"\"} to authenticate without knowing the actual password.",
+  "key_takeaway": "Never pass unsanitized request body objects directly into MongoDB find queries; validate data types explicitly.",
+  "likely_false_positive": {
+    "value": false,
+    "reason": "The find query consumes req.body without type assertion or operator sanitization."
+  },
+  "confidence_note": ""
+}
+

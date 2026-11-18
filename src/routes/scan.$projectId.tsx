@@ -15,6 +15,7 @@ import { fetchRepoFiles, buildFileMap } from "@/lib/github";
 import { runSast } from "@/lib/sast";
 import { recomputeScore } from "@/lib/score";
 import type { SastFinding } from "@/lib/sast";
+import { detectProvider, PROVIDER_INFOS } from "@/lib/ai-provider-detector";
 
 export const Route = createFileRoute("/scan/$projectId")({
   head: () => ({
@@ -58,6 +59,9 @@ function ScanPage() {
     // Restore key from sessionStorage so users don't re-type it on every navigation
     // sessionStorage is cleared when the tab closes — never sent to any server.
     return sessionStorage.getItem("sl_ai_key") ?? "";
+  });
+  const [backupApiKey, setBackupApiKey] = useState<string>(() => {
+    return sessionStorage.getItem("sl_ai_backup_key") ?? "";
   });
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -112,6 +116,7 @@ function ScanPage() {
   async function startScan() {
     if (!user || !project) return;
     const effectiveKey = aiApiKey.trim();
+    const effectiveBackupKey = backupApiKey.trim();
     if (!effectiveKey) {
       setError("AI API key is required. Enter it in the Pipeline Configuration above.");
       return;
@@ -156,7 +161,7 @@ function ScanPage() {
       setScanRunId(scanRun.id);
       await supabase.from("projects").update({ last_scan_id: scanRun.id }).eq("id", projectId);
 
-      await runScanPipeline(scanRun, effectiveKey);
+      await runScanPipeline(scanRun, effectiveKey, effectiveBackupKey);
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       console.error("[scan] Unhandled pipeline error:", err);
@@ -174,18 +179,20 @@ function ScanPage() {
     }
   }
 
-  async function runScanPipeline(scanRun: { id: string }, effectiveKey: string) {
-    const providerLabel =
-      effectiveKey.startsWith("AQ.") || effectiveKey.startsWith("AIza")
-        ? "gemini"
-        : effectiveKey.startsWith("sk-or-")
-          ? "openrouter"
-          : effectiveKey.startsWith("sk-")
-            ? "openai"
-            : "gemini";
+  async function runScanPipeline(
+    scanRun: { id: string },
+    effectiveKey: string,
+    effectiveBackupKey: string,
+  ) {
+    let quotaCount = 0;
+    const detected = detectProvider(effectiveKey);
+    const providerLabel = PROVIDER_INFOS[detected]?.name ?? "AI";
 
     addLog(`$ secureloop scan ${project!.repo_url}`);
-    addLog(`  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`, "dim");
+    addLog(
+      `  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`,
+      "dim",
+    );
     await delay(300);
 
     // Fetch repo files
@@ -332,6 +339,7 @@ function ScanPage() {
       line_end: f.line_end,
       vulnerability_class: f.vulnerability_class,
       raw_message: f.raw_message,
+      matched_text: (f as any).matched_text ?? null,
       status: "open",
       code_lines: f.code_lines,
     }));
@@ -372,34 +380,47 @@ function ScanPage() {
       );
     }
 
-    let quotaCount = 0;
     const explanationMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
-      const explanation = await generateExplanation(f, effectiveKey);
-      if (
-        explanation.error_type === "transient_error" &&
-        explanation.owasp_category.includes("Quota Exceeded")
-      ) {
-        quotaCount++;
+      try {
+        const fileContent = fileMap.get(f.file_path);
+        const explanation = await generateExplanation(
+          f,
+          effectiveKey,
+          effectiveBackupKey,
+          user?.id,
+          fileContent,
+        );
+        const { data: expRow } = await supabase
+          .from("explanations")
+          .insert({
+            finding_id: f.id,
+            what_it_is: explanation.what_it_is,
+            why_it_happened: explanation.why_it_happened,
+            owasp_category: explanation.owasp_category,
+            how_fix_works: explanation.how_fix_works,
+            technical_explanation: explanation.technical_explanation,
+            simplified_explanation: explanation.simplified_explanation,
+            attack_idea: explanation.attack_idea ?? null,
+            key_takeaway: explanation.key_takeaway ?? null,
+            likely_false_positive: explanation.likely_false_positive ?? false,
+            false_positive_reason: explanation.false_positive_reason ?? null,
+            confidence_note: explanation.confidence_note ?? null,
+            raw_explanation: (explanation.raw_explanation as any) ?? null,
+            model: explanation.model || providerLabel,
+            generated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (expRow) explanationMap.set(f.id, expRow.id);
+        await supabase.from("findings").update({ status: "explained" }).eq("id", f.id);
+        addLog(`  ✓ explained: ${f.file_path}:${f.line_start}`, "ok");
+      } catch (err: any) {
+        addLog(
+          `  ✖ explanation error (${f.file_path}:${f.line_start}): ${err?.message || String(err)}`,
+          "err",
+        );
       }
-      const { data: expRow } = await supabase
-        .from("explanations")
-        .insert({
-          finding_id: f.id,
-          what_it_is: explanation.what_it_is,
-          why_it_happened: explanation.why_it_happened,
-          owasp_category: explanation.owasp_category,
-          how_fix_works: explanation.how_fix_works,
-          model: explanation.model || providerLabel,
-          generated_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-      if (expRow) explanationMap.set(f.id, expRow.id);
-      await supabase.from("findings").update({ status: "explained" }).eq("id", f.id);
-      addLog(`  ✓ explained: ${f.file_path}:${f.line_start}`, "ok");
-      // Throttle between AI requests to respect free-tier rate limits (15 RPM)
-      await delay(800);
     }
 
     // ── 6. Generate patches ───────────────────────────────────────────────────
@@ -409,29 +430,34 @@ function ScanPage() {
 
     const patchMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
-      const fileContent = fileMap.get(f.file_path);
-      const patch = await generatePatch(f, fileContent, effectiveKey);
-      if (patch.diff.includes("quota exceeded")) {
-        quotaCount++;
+      try {
+        const fileContent = fileMap.get(f.file_path);
+        const patch = await generatePatch(
+          f,
+          fileContent,
+          effectiveKey,
+          effectiveBackupKey,
+          user?.id,
+        );
+        const expId = explanationMap.get(f.id);
+        const { data: patchRow } = await supabase
+          .from("patches")
+          .insert({
+            finding_id: f.id,
+            diff: patch.diff,
+            explanation_id: expId ?? null,
+            model: providerLabel,
+            generated_at: new Date().toISOString(),
+            validation_new_issues: 0,
+          })
+          .select("id")
+          .single();
+        if (patchRow) patchMap.set(f.id, patchRow.id);
+        await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
+        addLog(`  ✓ patch generated: ${f.file_path}`, "ok");
+      } catch (err: any) {
+        addLog(`  ✖ patch error (${f.file_path}): ${err?.message || String(err)}`, "err");
       }
-      const expId = explanationMap.get(f.id);
-      const { data: patchRow } = await supabase
-        .from("patches")
-        .insert({
-          finding_id: f.id,
-          diff: patch.diff,
-          explanation_id: expId ?? null,
-          model: providerLabel,
-          generated_at: new Date().toISOString(),
-          validation_new_issues: 0,
-        })
-        .select("id")
-        .single();
-      if (patchRow) patchMap.set(f.id, patchRow.id);
-      await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
-      addLog(`  ✓ patch generated: ${f.file_path}`, "ok");
-      // Throttle between AI requests to respect free-tier rate limits (15 RPM)
-      await delay(800);
     }
 
     // ── 7. Validate patches ───────────────────────────────────────────────────
@@ -604,6 +630,9 @@ function ScanPage() {
     );
   }
 
+  const primaryProvider = detectProvider(aiApiKey);
+  const backupProvider = detectProvider(backupApiKey);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
@@ -636,9 +665,17 @@ function ScanPage() {
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  AI API Key <span className="text-subtle/50">(Gemini / OpenRouter / OpenAI)</span>
-                </label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                    AI API Key{" "}
+                    <span className="text-subtle/50">(Gemini / Groq / OpenRouter / OpenAI)</span>
+                  </label>
+                  {aiApiKey && primaryProvider !== "unknown" && (
+                    <span className="rounded bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-accent">
+                      {PROVIDER_INFOS[primaryProvider].name}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="password"
                   value={aiApiKey}
@@ -650,11 +687,13 @@ function ScanPage() {
                       sessionStorage.removeItem("sl_ai_key");
                     }
                   }}
-                  placeholder="AQ.…, AIzaSy…, sk-or-…, or sk-proj-…"
+                  placeholder="AQ.…, AIzaSy…, gsk_…, sk-or-…, or sk-…"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
                 {aiApiKey ? (
-                  <p className="mt-1 font-mono text-[10px] text-success/70">✓ key remembered for this session</p>
+                  <p className="mt-1 font-mono text-[10px] text-success/70">
+                    ✓ key remembered for this session
+                  </p>
                 ) : (
                   <p className="mt-1 font-mono text-[10px] text-danger/70">
                     ✗ required — paste your{" "}
@@ -664,28 +703,80 @@ function ScanPage() {
                       rel="noopener noreferrer"
                       className="underline text-accent/70 hover:text-accent"
                     >
-                      Gemini API key
-                    </a>{" "}
-                    above
+                      Gemini
+                    </a>
+                    ,{" "}
+                    <a
+                      href="https://console.groq.com/keys"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-accent/70 hover:text-accent"
+                    >
+                      Groq
+                    </a>
+                    , or OpenRouter key above
                   </p>
                 )}
               </div>
               <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  GitHub token <span className="text-subtle/50">(optional, for private repos)</span>
-                </label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                    Backup AI Key <span className="text-subtle/50">(optional failover)</span>
+                  </label>
+                  {backupApiKey && backupProvider !== "unknown" && (
+                    <span className="rounded bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-accent">
+                      {PROVIDER_INFOS[backupProvider].name}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="password"
-                  value={githubToken}
-                  onChange={(e) => setGithubToken(e.target.value)}
-                  placeholder="ghp_…"
+                  value={backupApiKey}
+                  onChange={(e) => {
+                    setBackupApiKey(e.target.value);
+                    if (e.target.value) {
+                      sessionStorage.setItem("sl_ai_backup_key", e.target.value);
+                    } else {
+                      sessionStorage.removeItem("sl_ai_backup_key");
+                    }
+                  }}
+                  placeholder="Secondary key (e.g. Groq gsk_… or OpenRouter sk-or-…)"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
+                {backupApiKey ? (
+                  <p className="mt-1 font-mono text-[10px] text-success/70">
+                    ✓ backup key active on rate limit failover
+                  </p>
+                ) : (
+                  <p className="mt-1 font-mono text-[10px] text-subtle/50">
+                    Used automatically if primary key hits 429 quota
+                  </p>
+                )}
               </div>
             </div>
+
+            <div className="mt-2">
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                GitHub token <span className="text-subtle/50">(optional, for private repos)</span>
+              </label>
+              <input
+                type="password"
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                placeholder="ghp_…"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+              />
+            </div>
+
+            <p className="font-mono text-[10px] text-warning/80 flex items-center gap-1.5">
+              <AlertTriangle className="size-3 shrink-0" />
+              Note: Free-tier Gemini prompts may be used by Google to improve its products, so don't
+              scan private code with a free key.
+            </p>
             <p className="font-mono text-[10px] text-subtle/60 flex items-center gap-1.5">
-              <AlertTriangle className="size-3" />
-              Keys stay in your browser only — never sent to our servers. The key is remembered for this tab session.
+              <AlertTriangle className="size-3 shrink-0" />
+              Keys stay in your browser only — never sent to our servers. The key is remembered for
+              this tab session.
             </p>
           </div>
         )}

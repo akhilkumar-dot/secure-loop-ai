@@ -6,6 +6,7 @@ import { OpenAIProvider, OpenAIProvidersExhaustedError } from "./openai";
 import { CohereProvider, CohereProvidersExhaustedError } from "./cohere";
 import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
 import { GeminiProvider, GeminiProviderExhaustedError } from "./gemini-provider";
+import { GroqProvider } from "./groq";
 
 export class QuotaExceededError extends Error {
   isQuota = true;
@@ -24,7 +25,7 @@ const explanationCache = new Map<string, GeminiExplanation>();
 
 function getProvider(
   apiKey: string,
-): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
+): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider | GroqProvider {
   const effective = (apiKey || "").trim();
 
   if (!effective) {
@@ -38,6 +39,11 @@ function getProvider(
     return new GeminiProvider(effective);
   }
 
+  // Groq keys start with "gsk_"
+  if (effective.startsWith("gsk_")) {
+    return new GroqProvider({ apiKey: effective });
+  }
+
   // OpenRouter keys start with "sk-or-"
   if (effective.startsWith("sk-or-")) {
     return new OpenRouterProvider({ apiKey: effective });
@@ -49,7 +55,7 @@ function getProvider(
   }
 
   // Cohere keys are alphanumeric strings without "sk-"
-  if (effective.length > 20 && !effective.startsWith("sk-")) {
+  if (effective.length > 20 && !effective.startsWith("sk-") && !effective.startsWith("gsk_")) {
     return new CohereProvider({ apiKey: effective });
   }
 
@@ -208,35 +214,7 @@ Return ONLY valid JSON with this schema:
     return parsed;
   } catch (err: any) {
     console.error("AI explanation error:", err);
-    const isExhausted =
-      err instanceof AllProvidersExhaustedError ||
-      err instanceof GeminiProviderExhaustedError ||
-      err instanceof OpenAIProvidersExhaustedError ||
-      err instanceof CohereProvidersExhaustedError ||
-      err?.isExhausted;
-
-    if (isExhausted) {
-      return {
-        what_it_is: "AI rate limit or quota exceeded.",
-        why_it_happened:
-          "Rate limit reached during scan. Re-run scan later or check your API key in Settings.",
-        owasp_category: "Quota Exceeded",
-        how_fix_works: "Re-run scan later or provide a valid API key in Settings.",
-        error_type: "transient_error",
-        confidence: "not_applicable",
-        is_applicable: false,
-      };
-    }
-
-    return {
-      what_it_is: "AI Explanation generation failed — retry available.",
-      why_it_happened: `AI service error: ${err?.message || String(err)}.`,
-      owasp_category: "Transient Failure",
-      how_fix_works: "Click retry to attempt generating the explanation again.",
-      error_type: "transient_error",
-      confidence: "low",
-      is_applicable: true,
-    };
+    throw err;
   }
 }
 
@@ -290,20 +268,7 @@ The diff must be minimal (only change what's necessary to fix the vulnerability)
     return JSON.parse(res.content) as GeminiPatch;
   } catch (err: any) {
     console.error("AI patch error:", err);
-    const isExhausted =
-      err instanceof AllProvidersExhaustedError ||
-      err instanceof GeminiProviderExhaustedError ||
-      err instanceof OpenAIProvidersExhaustedError ||
-      err instanceof CohereProvidersExhaustedError ||
-      err?.isExhausted;
-    return {
-      diff: isExhausted
-        ? "// Patch skipped — AI model quota exceeded."
-        : "// Patch generation failed due to an AI error. Click retry to regenerate.",
-      explanation: isExhausted
-        ? "Patch generation skipped because all candidate AI models hit rate limits."
-        : `Could not generate patch: ${err?.message || "AI error"}.`,
-    };
+    throw err;
   }
 }
 

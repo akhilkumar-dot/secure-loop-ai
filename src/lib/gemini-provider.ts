@@ -11,7 +11,8 @@
  *
  * Compatible with the same generateChatCompletion interface as OpenAIProvider / OpenRouterProvider.
  */
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, type ResponseSchema } from "@google/generative-ai";
+import { redactKeys } from "./ai-provider-detector";
 
 export class GeminiProviderExhaustedError extends Error {
   isExhausted = true;
@@ -31,7 +32,8 @@ function resolveModels(): string[] {
 
   const envFallbacks =
     (typeof process !== "undefined" && process.env?.["GEMINI_MODEL_FALLBACKS"]) ||
-    (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_GEMINI_MODEL_FALLBACKS"]);
+    (typeof import.meta !== "undefined" &&
+      (import.meta as any).env?.["VITE_GEMINI_MODEL_FALLBACKS"]);
   const fallbacksEnv = envFallbacks || "gemini-2.0-flash,gemini-1.5-flash-8b";
 
   return [
@@ -64,13 +66,18 @@ export class GeminiProvider {
   async generateChatCompletion(
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
     stage: StageName = "default",
-    options: { temperature?: number; responseFormatJson?: boolean } = {},
+    options: {
+      temperature?: number;
+      responseFormatJson?: boolean;
+      responseSchema?: ResponseSchema | Record<string, unknown>;
+    } = {},
   ): Promise<{ content: string; modelUsed: string }> {
     const models = STAGE_MODELS[stage] ?? STAGE_MODELS.default;
     const errors: Record<string, string> = {};
 
-    // Merge all messages into a single prompt for Gemini
-    const combinedPrompt = messages.map((m) => m.content).join("\n\n");
+    const systemMsg = messages.find((m) => m.role === "system");
+    const nonSystem = messages.filter((m) => m.role !== "system");
+    const combinedPrompt = nonSystem.map((m) => m.content).join("\n\n");
 
     for (const modelName of models) {
       // Allow up to 2 attempts per model for transient errors
@@ -79,9 +86,13 @@ export class GeminiProvider {
           const genAI = new GoogleGenerativeAI(this.apiKey);
           const model = genAI.getGenerativeModel({
             model: modelName,
+            ...(systemMsg ? { systemInstruction: systemMsg.content } : {}),
             generationConfig: {
               temperature: options.temperature ?? 0.2,
               ...(options.responseFormatJson ? { responseMimeType: "application/json" } : {}),
+              ...(options.responseSchema
+                ? { responseSchema: options.responseSchema as unknown as ResponseSchema }
+                : {}),
             },
           });
 
@@ -107,7 +118,8 @@ export class GeminiProvider {
           console.log(`[Gemini Success] Served by model: ${modelName}`);
           return { content, modelUsed: modelName };
         } catch (err: any) {
-          const msg = err?.message || String(err);
+          const rawMsg = err?.message || String(err);
+          const msg = redactKeys(rawMsg, [this.apiKey]);
           console.warn(`[Gemini Attempt ${attempt + 1}] Model ${modelName} failed: ${msg}`);
           errors[`${modelName}_attempt_${attempt + 1}`] = msg;
 

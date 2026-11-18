@@ -1,0 +1,23 @@
+{
+  "_comment": "Provider: Google Gemini, Model: gemini-2.0-flash, Date: 2026-11-18, Finding: sqli-01-webgoat.js (javascript.lang.security.audit.sqli.node-sqli-injection)",
+  "what_it_is": {
+    "technical": "User-supplied input from req.query.userId is concatenated directly into a dynamic SQL query string without parametrization. An attacker can inject arbitrary SQL fragments to bypass authentication, read unauthorized database records, or modify table data.",
+    "simplified": "The application glues user-typed text directly into a database command like pasting words into a sentence. A malicious user can type database commands instead of an ID, tricking the database into giving away private information."
+  },
+  "why_it_happened": {
+    "technical": "The query is constructed using string concatenation with the + operator instead of using parameterized placeholders ($1 or ?) with a database driver. This conflates control data (SQL instructions) with user-supplied data.",
+    "simplified": "The developer joined strings together using the plus sign instead of telling the database driver to treat the user's input as separate safe data."
+  },
+  "how_fix_works": {
+    "technical": "Refactor the database call to use parameterized queries where input values are passed as an array of parameters separate from the prepared SQL command template. The database engine compiles the query plan before binding the parameters.",
+    "simplified": "Use parameter placeholders so the database knows the input is strictly data, never code that can be executed."
+  },
+  "attack_idea": "An attacker supplies an input value containing a single quote and a boolean tautology to dump the entire users table.",
+  "key_takeaway": "Always use parameterized queries or an ORM prepared statement, never string concatenation for database commands.",
+  "likely_false_positive": {
+    "value": false,
+    "reason": "The snippet directly concatenates req.query.userId into the query variable passed to db.query()."
+  },
+  "confidence_note": ""
+}
+

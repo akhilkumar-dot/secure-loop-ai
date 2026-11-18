@@ -3,6 +3,8 @@
  * Provides multi-model fallbacks for explanation_generation and patch_generation stages.
  */
 
+import { redactKeys } from "./ai-provider-detector";
+
 export class AllProvidersExhaustedError extends Error {
   isExhausted = true;
   constructor(stage: string, errors: Record<string, string>) {
@@ -57,7 +59,11 @@ export class OpenRouterProvider {
   async generateChatCompletion(
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
     stage: StageName = "default",
-    options: { temperature?: number; responseFormatJson?: boolean } = {},
+    options: {
+      temperature?: number;
+      responseFormatJson?: boolean;
+      responseSchema?: Record<string, unknown>;
+    } = {},
   ): Promise<{ content: string; modelUsed: string }> {
     if (!this.apiKey) {
       throw new Error(
@@ -97,7 +103,8 @@ export class OpenRouterProvider {
 
         if (!res.ok) {
           const status = res.status;
-          const text = await res.text();
+          const rawText = await res.text();
+          const text = redactKeys(rawText, [this.apiKey]);
           // Fallback on 429 (rate limit), 402 (payment/quota required), or 5xx
           if (status === 429 || status === 402 || status >= 500) {
             console.warn(
@@ -114,7 +121,7 @@ export class OpenRouterProvider {
         console.log(`[OpenRouter Success] Served by model: ${model}`);
         return { content, modelUsed: model };
       } catch (err: any) {
-        errorsRecorded[model] = err.message || String(err);
+        errorsRecorded[model] = redactKeys(err.message || String(err), [this.apiKey]);
         if (
           err.message?.includes("429") ||
           err.message?.includes("402") ||

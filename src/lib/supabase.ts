@@ -72,6 +72,7 @@ export interface DbFinding {
     | "likely_false_positive"
     | "dismissed";
   code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
+  matched_text?: string;
   created_at: string;
 }
 
@@ -84,6 +85,12 @@ export interface DbExplanation {
   how_fix_works?: string;
   technical_explanation?: string;
   simplified_explanation?: string;
+  attack_idea?: string;
+  key_takeaway?: string;
+  likely_false_positive?: boolean;
+  false_positive_reason?: string;
+  confidence_note?: string;
+  raw_explanation?: Record<string, unknown>;
   model?: string;
   confidence?: "high" | "medium" | "low" | "not_applicable";
   is_applicable?: boolean;

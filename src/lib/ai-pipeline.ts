@@ -18,6 +18,10 @@ import { OpenAIProvider, OpenAIProvidersExhaustedError } from "./openai";
 import { CohereProvider, CohereProvidersExhaustedError } from "./cohere";
 import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
 import { GeminiProvider, GeminiProviderExhaustedError } from "./gemini-provider";
+import { GroqProvider, GroqProvidersExhaustedError } from "./groq";
+import { executeWithRateLimitAndFallback } from "./rate-limiter";
+import { getCachedAiOutput, saveCachedAiOutput } from "./ai-cache";
+import { generateRealExplanation, type ExplanationOutput } from "./explanation-service";
 import { applyUnifiedDiff, checkSyntax } from "./patch";
 import { scanFile } from "./sast";
 import type { SastFinding } from "./sast";
@@ -40,9 +44,9 @@ const MAX_CODE_CHARS = 12_000;
 /** Lines of context above/below the finding line sent for patch generation */
 const PATCH_CONTEXT_LINES = 150;
 
-function getProvider(
+export function getProvider(
   apiKey: string,
-): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider {
+): OpenAIProvider | CohereProvider | OpenRouterProvider | GeminiProvider | GroqProvider {
   const effective = (apiKey || "").trim();
 
   if (!effective) {
@@ -56,6 +60,11 @@ function getProvider(
     return new GeminiProvider(effective);
   }
 
+  // Groq keys start with "gsk_"
+  if (effective.startsWith("gsk_")) {
+    return new GroqProvider({ apiKey: effective });
+  }
+
   // OpenRouter keys start with "sk-or-"
   if (effective.startsWith("sk-or-")) {
     return new OpenRouterProvider({ apiKey: effective });
@@ -67,7 +76,7 @@ function getProvider(
   }
 
   // Cohere keys are alphanumeric strings without "sk-"
-  if (effective.length > 20 && !effective.startsWith("sk-")) {
+  if (effective.length > 20 && !effective.startsWith("sk-") && !effective.startsWith("gsk_")) {
     return new CohereProvider({ apiKey: effective });
   }
 
@@ -135,6 +144,12 @@ export interface GeminiExplanation {
   how_fix_works: string;
   technical_explanation?: string | undefined;
   simplified_explanation?: string | undefined;
+  attack_idea?: string | undefined;
+  key_takeaway?: string | undefined;
+  likely_false_positive?: boolean | undefined;
+  false_positive_reason?: string | undefined;
+  confidence_note?: string | undefined;
+  raw_explanation?: ExplanationOutput | undefined;
   model?: string | undefined;
   confidence?: "high" | "medium" | "low" | "not_applicable" | undefined;
   is_applicable?: boolean | undefined;
@@ -254,96 +269,73 @@ ${fileBlocks}`;
 
 export async function generateExplanation(
   finding: {
+    id?: string;
     vulnerability_class?: string;
     cwe?: string;
     raw_message?: string;
+    message?: string;
+    rule_id?: string;
+    severity?: string;
     file_path: string;
+    line_start?: number;
+    matched_text?: string;
     code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
   },
   apiKeyOverride?: string,
+  backupKeyOverride?: string,
+  userId?: string,
+  fileContent?: string,
 ): Promise<GeminiExplanation> {
-  const cacheKey = `${finding.vulnerability_class}:${finding.cwe}:${finding.raw_message}`;
-  if (explanationCache.has(cacheKey)) {
-    return explanationCache.get(cacheKey)!;
-  }
-
-  const provider = getProvider(apiKeyOverride ?? "");
-
-  const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
-
-  const prompt = `You are a secure code educator. Explain the following security finding.
-
-Finding:
-- Type: ${finding.vulnerability_class} (${finding.cwe})
-- File: ${finding.file_path}
-- Message: ${finding.raw_message}
-
-${safeCodeBlock(codeContext, "vulnerable code")}
-
-Evaluate whether the code actually contains this vulnerability. Return ONLY valid JSON:
-{"is_applicable":boolean,"confidence":"high"|"medium"|"low"|"not_applicable","what_it_is":"2-3 sentences overview","why_it_happened":"2-3 sentences root cause","owasp_category":"e.g. A03:2021 — Injection","how_fix_works":"2-3 sentences remediation","technical_explanation":"Detailed AST, protocol, and code execution analysis for senior developers","simplified_explanation":"Accessible plain-English explanation with real-world intuition for junior developers"}`;
-
-  try {
-    const res = await provider.generateChatCompletion(
-      [{ role: "user", content: prompt }],
-      "explanation_generation",
-      { responseFormatJson: true, temperature: 0.3 },
-    );
-    const parsed = await parseWithSchema(res.content, ExplanationSchema, async () => {
-      const r = await provider.generateChatCompletion(
-        [{ role: "user", content: prompt }],
-        "explanation_generation",
-        { responseFormatJson: true, temperature: 0.3 },
-      );
-      return r.content;
-    });
-    const technical =
-      parsed.technical_explanation ||
-      `${parsed.what_it_is}\n\nTechnical Cause: ${parsed.why_it_happened}\n\nRemediation Mechanics: ${parsed.how_fix_works}`;
-    const simplified =
-      parsed.simplified_explanation ||
-      `${parsed.what_it_is}\n\nIn Plain Terms: ${parsed.how_fix_works}`;
-
-    const result: GeminiExplanation = {
-      ...parsed,
-      technical_explanation: technical,
-      simplified_explanation: simplified,
-      model: res.modelUsed,
-    };
-    if (parsed.is_applicable === false || parsed.confidence === "not_applicable") {
-      result.error_type = "false_positive";
+  let resolvedFileContent = fileContent;
+  if (!resolvedFileContent && Array.isArray(finding.code_lines) && finding.code_lines.length > 0) {
+    const maxLine = Math.max(...finding.code_lines.map((l) => l.n));
+    const lines = new Array(maxLine).fill("");
+    for (const cl of finding.code_lines) {
+      lines[cl.n - 1] = cl.code;
     }
-    explanationCache.set(cacheKey, result);
-    return result;
-  } catch (err: unknown) {
-    console.error("[ai-pipeline] Explanation error:", err);
-    const e = err as Record<string, unknown>;
-    const isExhausted =
-      err instanceof AllProvidersExhaustedError ||
-      err instanceof GeminiProviderExhaustedError ||
-      err instanceof OpenAIProvidersExhaustedError ||
-      err instanceof CohereProvidersExhaustedError ||
-      Boolean(e?.["isExhausted"]);
-    return isExhausted
-      ? {
-          what_it_is: "AI rate limit or quota exceeded.",
-          why_it_happened: "Rate limit reached during scan. Re-run later or check your API key.",
-          owasp_category: "Quota Exceeded",
-          how_fix_works: "Re-run scan later or provide a valid API key in Settings.",
-          error_type: "transient_error",
-          confidence: "not_applicable",
-          is_applicable: false,
-        }
-      : {
-          what_it_is: "Explanation generation failed.",
-          why_it_happened: `AI service error: ${(e?.["message"] as string) || String(err)}.`,
-          owasp_category: "Transient Failure",
-          how_fix_works: "Retry the scan.",
-          error_type: "transient_error",
-          confidence: "low",
-          is_applicable: true,
-        };
+    resolvedFileContent = lines.join("\n");
   }
+
+  if (!resolvedFileContent) {
+    throw new Error(
+      `Cannot generate explanation for ${finding.file_path}: file content was not provided and cannot be verified.`,
+    );
+  }
+
+  const realExp = await generateRealExplanation({
+    finding: {
+      rule_id: finding.rule_id || "not provided",
+      vuln_class: finding.vulnerability_class,
+      cwe: finding.cwe,
+      severity: finding.severity || "medium",
+      raw_message: finding.raw_message || finding.message,
+      file_path: finding.file_path,
+      line_start: finding.line_start ?? 1,
+      matched_text: finding.matched_text,
+    },
+    fileContent: resolvedFileContent,
+    primaryKey: apiKeyOverride ?? "",
+    backupKey: backupKeyOverride,
+    userId,
+    findingId: finding.id,
+  });
+
+  return {
+    what_it_is: realExp.output.what_it_is.technical,
+    why_it_happened: realExp.output.why_it_happened.technical,
+    how_fix_works: realExp.output.how_fix_works.technical,
+    technical_explanation: realExp.output.what_it_is.technical,
+    simplified_explanation: realExp.output.what_it_is.simplified,
+    owasp_category: finding.cwe || "A03:2021 — Injection",
+    attack_idea: realExp.output.attack_idea,
+    key_takeaway: realExp.output.key_takeaway,
+    likely_false_positive: realExp.output.likely_false_positive.value,
+    false_positive_reason: realExp.output.likely_false_positive.reason,
+    confidence_note: realExp.output.confidence_note,
+    raw_explanation: realExp.output,
+    model: realExp.modelUsed,
+    error_type: realExp.output.likely_false_positive.value ? "false_positive" : undefined,
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -375,6 +367,7 @@ function fileWindow(
 
 export async function generatePatch(
   finding: {
+    id?: string;
     vulnerability_class?: string;
     cwe?: string;
     raw_message?: string;
@@ -384,8 +377,16 @@ export async function generatePatch(
   },
   fullFileContent?: string,
   apiKeyOverride?: string,
+  backupKeyOverride?: string,
+  userId?: string,
 ): Promise<GeminiPatch> {
-  const provider = getProvider(apiKeyOverride ?? "");
+  // 1. Check persistent Supabase cache first if user and finding ID are present
+  if (userId && finding.id) {
+    const cached = await getCachedAiOutput<GeminiPatch>(userId, finding.id, "patch");
+    if (cached) {
+      return cached.output;
+    }
+  }
 
   const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
 
@@ -410,37 +411,41 @@ Return ONLY valid JSON:
 
 The diff MUST target the exact lines shown in the file context above so it can be applied programmatically.`;
 
-  try {
-    const res = await provider.generateChatCompletion(
-      [{ role: "user", content: prompt }],
-      "patch_generation",
-      { responseFormatJson: true, temperature: 0.2 },
-    );
-    const parsed = await parseWithSchema(res.content, PatchSchema, async () => {
-      const r = await provider.generateChatCompletion(
+  const { result, providerUsed } = await executeWithRateLimitAndFallback<GeminiPatch>({
+    primaryKey: apiKeyOverride ?? "",
+    backupKey: backupKeyOverride,
+    execute: async (keyToUse) => {
+      const provider = getProvider(keyToUse);
+      const res = await provider.generateChatCompletion(
         [{ role: "user", content: prompt }],
         "patch_generation",
         { responseFormatJson: true, temperature: 0.2 },
       );
-      return r.content;
+      const parsed = await parseWithSchema(res.content, PatchSchema, async () => {
+        const r = await provider.generateChatCompletion(
+          [{ role: "user", content: prompt }],
+          "patch_generation",
+          { responseFormatJson: true, temperature: 0.2 },
+        );
+        return r.content;
+      });
+      return { diff: parsed.diff, explanation: parsed.explanation };
+    },
+  });
+
+  // 2. Persist to Supabase cache
+  if (userId && finding.id) {
+    await saveCachedAiOutput({
+      userId,
+      findingId: finding.id,
+      task: "patch",
+      provider: providerUsed,
+      modelId: providerUsed,
+      output: result,
     });
-    return { diff: parsed.diff, explanation: parsed.explanation };
-  } catch (err: unknown) {
-    console.error("[ai-pipeline] Patch generation error:", err);
-    const e = err as Record<string, unknown>;
-    const isExhausted =
-      err instanceof AllProvidersExhaustedError ||
-      err instanceof GeminiProviderExhaustedError ||
-      err instanceof OpenAIProvidersExhaustedError ||
-      err instanceof CohereProvidersExhaustedError ||
-      Boolean(e?.["isExhausted"]);
-    return {
-      diff: "// Patch generation failed — see scan log",
-      explanation: isExhausted
-        ? "Skipped: AI model quota exceeded."
-        : `Failed: ${(e?.["message"] as string) || "AI error"}.`,
-    };
   }
+
+  return result;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
