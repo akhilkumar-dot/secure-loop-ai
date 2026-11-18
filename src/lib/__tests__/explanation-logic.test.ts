@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import {
   extractAndVerifySnippet,
   buildPromptInputData,
+  formatExplanationUserPrompt,
   normalizeLine,
   type RealScanFinding,
 } from "../finding-input";
@@ -26,6 +27,16 @@ import {
   GROQ_STRUCTURED_EXPLANATION_SCHEMA,
   resolveCandidateGroqModels,
 } from "../groq";
+import {
+  getStageJsonSchema,
+  assertStageSchemaEquivalence,
+  PatchSchema,
+  GROQ_EXPLANATION_JSON_SCHEMA,
+  GROQ_PATCH_JSON_SCHEMA,
+  GROQ_TRIAGE_JSON_SCHEMA,
+  GROQ_VALIDATION_REVIEW_JSON_SCHEMA,
+} from "../stage-schemas";
+import { isSameProviderBackup, getSameProviderBackupWarning } from "../rate-limiter";
 import fixtureSqli from "./fixtures/explanation-sqli-gemini.json";
 import fixtureNosqli from "./fixtures/explanation-nosqli-groq.json";
 
@@ -150,7 +161,7 @@ describe("Step 3 & 4: JSON Extraction & Zod Schema Validation", () => {
       expect(parsed.data.how_fix_works.technical).toContain("parameterized queries");
       expect(parsed.data.attack_idea).toBeTruthy();
       expect(parsed.data.key_takeaway).toBeTruthy();
-      expect(parsed.data.likely_false_positive.value).toBe(false);
+      expect(parsed.data.likely_false_positive?.value).toBe(false);
     }
   });
 
@@ -162,7 +173,7 @@ describe("Step 3 & 4: JSON Extraction & Zod Schema Validation", () => {
     if (parsed.success) {
       expect(parsed.data.what_it_is.technical).toContain("MongoDB");
       expect(parsed.data.attack_idea).toContain('"$gt"');
-      expect(parsed.data.likely_false_positive.value).toBe(false);
+      expect(parsed.data.likely_false_positive?.value).toBe(false);
     }
   });
 
@@ -326,5 +337,137 @@ describe("Groq Dynamic Model Discovery & Error Classification", () => {
     const subObj = GROQ_STRUCTURED_EXPLANATION_SCHEMA.properties.what_it_is;
     expect(subObj.additionalProperties).toBe(false);
     expect(subObj.required).toEqual(expect.arrayContaining(["technical", "simplified"]));
+  });
+});
+
+describe("Per-Stage Schemas & Startup Equivalence Assertions", () => {
+  it("never shares one global schema across stages", () => {
+    const expSchema = getStageJsonSchema("explanation_generation");
+    const patchSchema = getStageJsonSchema("patch_generation");
+    const triageSchema = getStageJsonSchema("triage");
+    const valSchema = getStageJsonSchema("vulnerability_validation");
+
+    expect(expSchema).not.toEqual(patchSchema);
+    expect(patchSchema).not.toEqual(triageSchema);
+    expect(patchSchema).not.toEqual(valSchema);
+
+    expect(patchSchema).toEqual(GROQ_PATCH_JSON_SCHEMA);
+    expect(patchSchema?.["required"]).toEqual(["diff", "explanation"]);
+    expect((patchSchema?.["properties"] as any).diff).toBeDefined();
+    expect((patchSchema?.["properties"] as any).what_it_is).toBeUndefined();
+  });
+
+  it("verifies schema equivalence between JSON Schema and Zod schema for patch stage", () => {
+    expect(() =>
+      assertStageSchemaEquivalence("patch_generation", GROQ_PATCH_JSON_SCHEMA, PatchSchema),
+    ).not.toThrow();
+  });
+
+  it("verifies schema equivalence between JSON Schema and Zod schema for explanation stage", () => {
+    expect(() =>
+      assertStageSchemaEquivalence(
+        "explanation_generation",
+        GROQ_EXPLANATION_JSON_SCHEMA,
+        ExplanationOutputSchema,
+      ),
+    ).not.toThrow();
+  });
+
+  it("places likely_false_positive and confidence_note at the front of explanation schema", () => {
+    const requiredKeys = GROQ_EXPLANATION_JSON_SCHEMA.required;
+    expect(requiredKeys[0]).toBe("likely_false_positive");
+    expect(requiredKeys[1]).toBe("confidence_note");
+  });
+
+  it("places likely_false_positive and confidence_note at the front of prompt template", () => {
+    const prompt = formatExplanationUserPrompt({
+      rule_id: "test.eval",
+      vuln_class: "xss",
+      cwe: "CWE-79",
+      severity: "critical",
+      message: "eval input",
+      file_path: "app/routes/contributions.js",
+      line_start: 34,
+      snippet_with_line_numbers: ">>> 34 | eval(req.body.contribution)",
+    });
+
+    const lfpIdx = prompt.indexOf('"likely_false_positive"');
+    const confIdx = prompt.indexOf('"confidence_note"');
+    const whatIdx = prompt.indexOf('"what_it_is"');
+
+    expect(lfpIdx).toBeGreaterThan(0);
+    expect(confIdx).toBeGreaterThan(0);
+    expect(whatIdx).toBeGreaterThan(0);
+    expect(lfpIdx).toBeLessThan(whatIdx);
+    expect(confIdx).toBeLessThan(whatIdx);
+  });
+});
+
+describe("Final Failure Handling & Zod Normalization", () => {
+  const validBase = {
+    what_it_is: { technical: "Tech explanation", simplified: "Simple explanation" },
+    why_it_happened: { technical: "Tech why", simplified: "Simple why" },
+    how_fix_works: { technical: "Tech fix", simplified: "Simple fix" },
+    attack_idea: "Conceptual attack description",
+    key_takeaway: "Key takeaway message",
+  };
+
+  it("allows likely_false_positive: null when model fails to assess it", () => {
+    const parsed = ExplanationOutputSchema.parse({
+      ...validBase,
+      likely_false_positive: null,
+      confidence_note: "test",
+    });
+    expect(parsed.likely_false_positive).toBeNull();
+  });
+
+  it("defaults confidence_note to empty string if omitted", () => {
+    const parsed = ExplanationOutputSchema.parse({
+      ...validBase,
+      likely_false_positive: { value: false, reason: "Dangerous user input" },
+    });
+    expect(parsed.confidence_note).toBe("");
+  });
+
+  it("rejects if core explanation fields are missing even if false_positive is null", () => {
+    expect(() =>
+      ExplanationOutputSchema.parse({
+        what_it_is: { technical: "Tech explanation", simplified: "Simple explanation" },
+        likely_false_positive: null,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("Same-Provider Backup Key Detection", () => {
+  it("detects when primary and backup keys are both from Groq", () => {
+    const primary = "gsk_primaryKey1234567890abcdef";
+    const backup = "gsk_backupKey1234567890abcdef";
+
+    expect(isSameProviderBackup(primary, backup)).toBe(true);
+    const warning = getSameProviderBackupWarning(primary, backup);
+    expect(warning).toContain("Backup key is from the same provider as primary (Groq)");
+    expect(warning).toContain("Rate limits and quota may be shared");
+  });
+
+  it("detects when primary and backup keys are from different providers", () => {
+    const primary = "gsk_primaryKey1234567890abcdef";
+    const backup = "AIzaSy_geminiKey1234567890abcdef";
+
+    expect(isSameProviderBackup(primary, backup)).toBe(false);
+    expect(getSameProviderBackupWarning(primary, backup)).toBeNull();
+  });
+});
+
+describe("Failed Generation Recovery on json_validate_failed", () => {
+  it("extracts and validates patch payload from failed_generation JSON", () => {
+    const failedGenStr =
+      '{"diff": "@@ -34 +34 @@\\n-eval(x)\\n+safe(x)", "explanation": "replaces eval with safe"}';
+    const extracted = extractFirstJson(failedGenStr);
+    const parsed = JSON.parse(extracted);
+    const patch = PatchSchema.parse(parsed);
+
+    expect(patch.diff).toContain("@@ -34 +34 @@");
+    expect(patch.explanation).toBe("replaces eval with safe");
   });
 });

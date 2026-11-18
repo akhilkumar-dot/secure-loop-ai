@@ -5,9 +5,13 @@
  * - One LLM call per finding producing both technical and simplified explanations.
  * - Temperature 0.2 - 0.3.
  * - Strict adherence to spec system prompt and user prompt templates.
- * - Native JSON schema mode for Gemini; defensive JSON parsing for Groq / OpenRouter / OpenAI.
+ * - Native JSON schema mode for Gemini; strict JSON Schema Structured Outputs for Groq; defensive parsing for OpenRouter / OpenAI.
+ * - Schema order: likely_false_positive and confidence_note at the FRONT.
  * - Provider detection, rate limiting, exponential backoff, and backup key fallback.
- * - Zod schema validation with single retry on validation error; throws typed error on second failure.
+ * - Diagnostic logging (provider, model, finish_reason, completion_tokens, max_tokens, raw_length).
+ * - max_tokens config (1500 base, 2500 on length truncation retry).
+ * - Specific retry listing missing or invalid fields.
+ * - Final failure handling: likely_false_positive stored as null ("not assessed"), confidence_note as "".
  * - Post-generation grounding check against inspected snippet.
  * - Supabase caching keyed by user + finding + prompt version.
  * - ZERO dummy, mock, fallback, or canned text anywhere.
@@ -26,33 +30,18 @@ import { checkExplanationGrounding, type GroundingCheckResult } from "./groundin
 import { getProvider } from "./ai-pipeline";
 import { executeWithRateLimitAndFallback } from "./rate-limiter";
 import { getCachedAiOutput, saveCachedAiOutput } from "./ai-cache";
-import type { DetectedProvider } from "./ai-provider-detector";
+import { detectProvider, type DetectedProvider } from "./ai-provider-detector";
+import {
+  ExplanationOutputSchema,
+  type ExplanationOutput,
+  GROQ_EXPLANATION_JSON_SCHEMA,
+} from "./stage-schemas";
 
-export const EXPLANATION_PROMPT_VERSION = "3.0";
+export { ExplanationOutputSchema, type ExplanationOutput };
 
-export const ExplanationOutputSchema = z.object({
-  what_it_is: z.object({
-    technical: z.string().min(1, "Technical what_it_is cannot be empty"),
-    simplified: z.string().min(1, "Simplified what_it_is cannot be empty"),
-  }),
-  why_it_happened: z.object({
-    technical: z.string().min(1, "Technical why_it_happened cannot be empty"),
-    simplified: z.string().min(1, "Simplified why_it_happened cannot be empty"),
-  }),
-  how_fix_works: z.object({
-    technical: z.string().min(1, "Technical how_fix_works cannot be empty"),
-    simplified: z.string().min(1, "Simplified how_fix_works cannot be empty"),
-  }),
-  attack_idea: z.string().min(1, "attack_idea cannot be empty"),
-  key_takeaway: z.string().min(1, "key_takeaway cannot be empty"),
-  likely_false_positive: z.object({
-    value: z.boolean(),
-    reason: z.string(),
-  }),
-  confidence_note: z.string(),
-});
-
-export type ExplanationOutput = z.infer<typeof ExplanationOutputSchema>;
+export const EXPLANATION_PROMPT_VERSION = "4.0";
+export const EXPLANATION_BASE_MAX_TOKENS = 1500;
+export const EXPLANATION_RETRY_MAX_TOKENS = 2500;
 
 export class ExplanationValidationError extends Error {
   isValidationError = true;
@@ -93,11 +82,20 @@ export function extractFirstJson(text: string): string {
 }
 
 /**
- * Gemini-specific ResponseSchema definition matching the spec JSON.
+ * Gemini-specific ResponseSchema definition with likely_false_positive and confidence_note at FRONT.
  */
 export const GEMINI_EXPLANATION_SCHEMA: ResponseSchema = {
   type: SchemaType.OBJECT,
   properties: {
+    likely_false_positive: {
+      type: SchemaType.OBJECT,
+      properties: {
+        value: { type: SchemaType.BOOLEAN },
+        reason: { type: SchemaType.STRING },
+      },
+      required: ["value", "reason"],
+    },
+    confidence_note: { type: SchemaType.STRING },
     what_it_is: {
       type: SchemaType.OBJECT,
       properties: {
@@ -124,24 +122,15 @@ export const GEMINI_EXPLANATION_SCHEMA: ResponseSchema = {
     },
     attack_idea: { type: SchemaType.STRING },
     key_takeaway: { type: SchemaType.STRING },
-    likely_false_positive: {
-      type: SchemaType.OBJECT,
-      properties: {
-        value: { type: SchemaType.BOOLEAN },
-        reason: { type: SchemaType.STRING },
-      },
-      required: ["value", "reason"],
-    },
-    confidence_note: { type: SchemaType.STRING },
   },
   required: [
+    "likely_false_positive",
+    "confidence_note",
     "what_it_is",
     "why_it_happened",
     "how_fix_works",
     "attack_idea",
     "key_takeaway",
-    "likely_false_positive",
-    "confidence_note",
   ],
 };
 
@@ -222,8 +211,13 @@ export async function generateRealExplanation(
     execute: async (keyToUse) => {
       const provider = getProvider(keyToUse);
       const isGemini = keyToUse.startsWith("AQ.") || keyToUse.startsWith("AIza");
+      const isGroq = keyToUse.startsWith("gsk_");
+      const providerName = detectProvider(keyToUse);
 
-      const res = await provider.generateChatCompletion(
+      let maxTokens = EXPLANATION_BASE_MAX_TOKENS;
+
+      // 4a. Initial Call
+      let res = await provider.generateChatCompletion(
         [
           { role: "system", content: EXPLANATION_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -231,21 +225,75 @@ export async function generateRealExplanation(
         "explanation_generation",
         {
           temperature: 0.2,
+          maxTokens,
           responseFormatJson: true,
           ...(isGemini
             ? {
                 responseSchema: GEMINI_EXPLANATION_SCHEMA as unknown as Record<string, unknown>,
               }
-            : {}),
+            : isGroq
+              ? {
+                  responseSchema: GROQ_EXPLANATION_JSON_SCHEMA,
+                }
+              : {}),
         },
       );
 
-      const jsonString = extractFirstJson(res.content);
+      // Diagnostic logging (strictly excludes API key and full prompt)
+      const resMeta = res as any;
+      console.log("[explanation-diagnostics]", {
+        provider: providerName,
+        model: res.modelUsed,
+        finish_reason: resMeta.finishReason ?? "unknown",
+        completion_tokens: resMeta.completionTokens ?? "unknown",
+        max_tokens_sent: maxTokens,
+        raw_response_length: res.content.length,
+      });
+
+      // 4b. If finish_reason indicates token limit truncation, retry once with higher limit
+      if (resMeta.finishReason === "length" || resMeta.finishReason === "MAX_TOKENS") {
+        console.warn(
+          `[explanation-diagnostics] Truncation detected on model ${res.modelUsed} (finish_reason = length). Retrying once with ${EXPLANATION_RETRY_MAX_TOKENS} tokens...`,
+        );
+        maxTokens = EXPLANATION_RETRY_MAX_TOKENS;
+        res = await provider.generateChatCompletion(
+          [
+            { role: "system", content: EXPLANATION_SYSTEM_PROMPT },
+            { role: "user", content: userPrompt },
+          ],
+          "explanation_generation",
+          {
+            temperature: 0.2,
+            maxTokens,
+            responseFormatJson: true,
+            ...(isGemini
+              ? {
+                  responseSchema: GEMINI_EXPLANATION_SCHEMA as unknown as Record<string, unknown>,
+                }
+              : isGroq
+                ? {
+                    responseSchema: GROQ_EXPLANATION_JSON_SCHEMA,
+                  }
+                : {}),
+          },
+        );
+
+        const retryMeta = res as any;
+        console.log("[explanation-diagnostics-retry-length]", {
+          provider: providerName,
+          model: res.modelUsed,
+          finish_reason: retryMeta.finishReason ?? "unknown",
+          completion_tokens: retryMeta.completionTokens ?? "unknown",
+          max_tokens_sent: maxTokens,
+          raw_response_length: res.content.length,
+        });
+      }
+
+      // 4c. Extract JSON and parse
       let parsedJson: unknown;
       try {
-        parsedJson = JSON.parse(jsonString);
+        parsedJson = JSON.parse(extractFirstJson(res.content));
       } catch (jsonErr) {
-        // Attempt follow-up retry for valid JSON
         console.warn("[explanation-service] Initial JSON parse failed, retrying once...");
         const retryRes = await provider.generateChatCompletion(
           [
@@ -260,17 +308,23 @@ export async function generateRealExplanation(
           "explanation_generation",
           {
             temperature: 0.1,
+            maxTokens,
             responseFormatJson: true,
             ...(isGemini
               ? {
                   responseSchema: GEMINI_EXPLANATION_SCHEMA as unknown as Record<string, unknown>,
                 }
-              : {}),
+              : isGroq
+                ? {
+                    responseSchema: GROQ_EXPLANATION_JSON_SCHEMA,
+                  }
+                : {}),
           },
         );
         parsedJson = JSON.parse(extractFirstJson(retryRes.content));
       }
 
+      // 4d. First-pass validation check
       const parseResult = ExplanationOutputSchema.safeParse(parsedJson);
       if (parseResult.success) {
         return {
@@ -279,39 +333,75 @@ export async function generateRealExplanation(
         };
       }
 
-      // Retry once if schema validation failed
+      // 4e. Specific retry listing missing or invalid fields
+      const missingOrInvalid = parseResult.error.issues
+        .map((issue) => {
+          const path = issue.path.join(".");
+          return path ? `"${path}": ${issue.message}` : issue.message;
+        })
+        .join("; ");
+
       console.warn(
-        "[explanation-service] Schema validation failed, retrying with schema correction prompt...",
+        `[explanation-service] Schema validation failed. Missing/invalid: ${missingOrInvalid}. Retrying with specific correction prompt...`,
       );
+
       const fixRes = await provider.generateChatCompletion(
         [
           { role: "system", content: EXPLANATION_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
           {
             role: "user",
-            content: `Your previous response did not match the required schema: ${JSON.stringify(
-              parseResult.error.issues,
-            )}. Return ONLY valid JSON with exactly the required fields.`,
+            content: `Your previous response was incomplete or did not match the required schema. Missing or invalid fields: ${missingOrInvalid}. Return ONLY the COMPLETE valid JSON object with ALL required fields.`,
           },
         ],
         "explanation_generation",
         {
           temperature: 0.1,
+          maxTokens: Math.max(maxTokens, EXPLANATION_RETRY_MAX_TOKENS),
           responseFormatJson: true,
           ...(isGemini
             ? {
                 responseSchema: GEMINI_EXPLANATION_SCHEMA as unknown as Record<string, unknown>,
               }
-            : {}),
+            : isGroq
+              ? {
+                  responseSchema: GROQ_EXPLANATION_JSON_SCHEMA,
+                }
+              : {}),
         },
       );
 
       const secondParsed = JSON.parse(extractFirstJson(fixRes.content));
-      const secondCheck = ExplanationOutputSchema.safeParse(secondParsed);
+      const secondObj = secondParsed as any;
+
+      // 4f. Final failure handling per Requirement 6:
+      // If retry still lacks likely_false_positive -> store as null (not assessed in UI; do NOT default to false or invent reason)
+      // If confidence_note is missing -> treat as "" (confident)
+      // Allow these two cases ONLY; any other missing field remains a hard error
+      if (secondObj && typeof secondObj === "object") {
+        if (secondObj.confidence_note === undefined) {
+          secondObj.confidence_note = "";
+        }
+        if (secondObj.likely_false_positive === undefined) {
+          secondObj.likely_false_positive = null;
+        }
+      }
+
+      const secondCheck = ExplanationOutputSchema.safeParse(secondObj);
 
       if (!secondCheck.success) {
+        const finalMissing = secondCheck.error.issues
+          .map((i) => i.path.join(".") || "root")
+          .join(", ");
+        const fixMeta = fixRes as any;
+        const isTruncated =
+          fixMeta.finishReason === "length" || fixMeta.finishReason === "MAX_TOKENS";
+        const errDetail = isTruncated
+          ? `Output truncated by model token limit (${fixRes.modelUsed}). Incomplete fields: ${finalMissing}`
+          : `Missing or invalid required fields (${finalMissing}) from model ${fixRes.modelUsed}`;
+
         throw new ExplanationValidationError(
-          `Explanation output failed Zod schema validation after retry: ${secondCheck.error.message}`,
+          `AI explanation generation failed: ${errDetail}`,
           fixRes.content,
           secondCheck.error.issues,
         );

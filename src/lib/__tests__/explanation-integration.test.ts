@@ -62,7 +62,7 @@ describeOrSkip("Live AI Provider Explanation Generation (Real Data)", () => {
     expect(result.output.how_fix_works.technical).toBeTruthy();
     expect(result.output.attack_idea).toBeTruthy();
     expect(result.output.key_takeaway).toBeTruthy();
-    expect(typeof result.output.likely_false_positive.value).toBe("boolean");
+    expect(typeof result.output.likely_false_positive?.value).toBe("boolean");
     expect(result.modelUsed).toBeTruthy();
     expect(result.provider).toBeTruthy();
 

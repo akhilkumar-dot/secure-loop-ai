@@ -25,6 +25,15 @@ import { generateRealExplanation, type ExplanationOutput } from "./explanation-s
 import { applyUnifiedDiff, checkSyntax } from "./patch";
 import { scanFile } from "./sast";
 import type { SastFinding } from "./sast";
+import {
+  PatchSchema,
+  GROQ_PATCH_JSON_SCHEMA,
+  GROQ_TRIAGE_JSON_SCHEMA,
+  GROQ_VALIDATION_REVIEW_JSON_SCHEMA,
+  GROQ_VALIDATION_OPINION_JSON_SCHEMA,
+  ValidationReviewSchema,
+  ValidationOpinionSchema,
+} from "./stage-schemas";
 
 export class QuotaExceededError extends Error {
   isQuota = true;
@@ -212,11 +221,6 @@ const ExplanationSchema = z.object({
   simplified_explanation: z.string().optional(),
 });
 
-const PatchSchema = z.object({
-  diff: z.string(),
-  explanation: z.string(),
-});
-
 const LlmReviewSchema = z.object({
   review: z.string().optional(),
   llm_vulnerability_gone: z.boolean().optional(),
@@ -245,14 +249,22 @@ ${fileBlocks}`;
   try {
     const res = await provider.generateChatCompletion(
       [{ role: "user", content: prompt }],
-      "explanation_generation",
-      { responseFormatJson: true, temperature: 0.1 },
+      "triage",
+      {
+        responseFormatJson: true,
+        temperature: 0.1,
+        responseSchema: GROQ_TRIAGE_JSON_SCHEMA,
+      },
     );
     const parsed = await parseWithSchema(res.content, FindingsSchema, async () => {
       const r = await provider.generateChatCompletion(
         [{ role: "user", content: prompt }],
-        "explanation_generation",
-        { responseFormatJson: true, temperature: 0.1 },
+        "triage",
+        {
+          responseFormatJson: true,
+          temperature: 0.1,
+          responseSchema: GROQ_TRIAGE_JSON_SCHEMA,
+        },
       );
       return r.content;
     });
@@ -329,12 +341,12 @@ export async function generateExplanation(
     owasp_category: finding.cwe || "A03:2021 — Injection",
     attack_idea: realExp.output.attack_idea,
     key_takeaway: realExp.output.key_takeaway,
-    likely_false_positive: realExp.output.likely_false_positive.value,
-    false_positive_reason: realExp.output.likely_false_positive.reason,
-    confidence_note: realExp.output.confidence_note,
+    likely_false_positive: realExp.output.likely_false_positive?.value ?? (null as any),
+    false_positive_reason: realExp.output.likely_false_positive?.reason ?? undefined,
+    confidence_note: realExp.output.confidence_note ?? "",
     raw_explanation: realExp.output,
     model: realExp.modelUsed,
-    error_type: realExp.output.likely_false_positive.value ? "false_positive" : undefined,
+    error_type: realExp.output.likely_false_positive?.value === true ? "false_positive" : undefined,
   };
 }
 
@@ -419,13 +431,23 @@ The diff MUST target the exact lines shown in the file context above so it can b
       const res = await provider.generateChatCompletion(
         [{ role: "user", content: prompt }],
         "patch_generation",
-        { responseFormatJson: true, temperature: 0.2 },
+        {
+          responseFormatJson: true,
+          temperature: 0.2,
+          responseSchema: GROQ_PATCH_JSON_SCHEMA,
+          validateFn: (obj) => PatchSchema.parse(obj),
+        },
       );
       const parsed = await parseWithSchema(res.content, PatchSchema, async () => {
         const r = await provider.generateChatCompletion(
           [{ role: "user", content: prompt }],
           "patch_generation",
-          { responseFormatJson: true, temperature: 0.2 },
+          {
+            responseFormatJson: true,
+            temperature: 0.2,
+            responseSchema: GROQ_PATCH_JSON_SCHEMA,
+            validateFn: (obj) => PatchSchema.parse(obj),
+          },
         );
         return r.content;
       });
@@ -564,14 +586,24 @@ Return ONLY valid JSON: {"review":"your brief comment here"}`;
 
       const res = await provider.generateChatCompletion(
         [{ role: "user", content: reviewPrompt }],
-        "patch_generation",
-        { responseFormatJson: true, temperature: 0.2 },
+        "vulnerability_validation",
+        {
+          responseFormatJson: true,
+          temperature: 0.2,
+          responseSchema: GROQ_VALIDATION_REVIEW_JSON_SCHEMA,
+          validateFn: (obj) => ValidationReviewSchema.parse(obj),
+        },
       );
-      const reviewed = await parseWithSchema(res.content, LlmReviewSchema, async () => {
+      const reviewed = await parseWithSchema(res.content, ValidationReviewSchema, async () => {
         const r = await provider.generateChatCompletion(
           [{ role: "user", content: reviewPrompt }],
-          "patch_generation",
-          { responseFormatJson: true, temperature: 0.2 },
+          "vulnerability_validation",
+          {
+            responseFormatJson: true,
+            temperature: 0.2,
+            responseSchema: GROQ_VALIDATION_REVIEW_JSON_SCHEMA,
+            validateFn: (obj) => ValidationReviewSchema.parse(obj),
+          },
         );
         return r.content;
       });
@@ -611,19 +643,24 @@ Return ONLY valid JSON:
 
     const res = await provider.generateChatCompletion(
       [{ role: "user", content: prompt }],
-      "patch_generation",
-      { responseFormatJson: true, temperature: 0.1 },
+      "vulnerability_validation",
+      {
+        responseFormatJson: true,
+        temperature: 0.1,
+        responseSchema: GROQ_VALIDATION_OPINION_JSON_SCHEMA,
+        validateFn: (obj) => ValidationOpinionSchema.parse(obj),
+      },
     );
-    const opinionSchema = z.object({
-      llm_vulnerability_gone: z.boolean(),
-      review: z.string().optional(),
-      new_issues_count: z.number().optional(),
-    });
-    const parsed = await parseWithSchema(res.content, opinionSchema, async () => {
+    const parsed = await parseWithSchema(res.content, ValidationOpinionSchema, async () => {
       const r = await provider.generateChatCompletion(
         [{ role: "user", content: prompt }],
-        "patch_generation",
-        { responseFormatJson: true, temperature: 0.1 },
+        "vulnerability_validation",
+        {
+          responseFormatJson: true,
+          temperature: 0.1,
+          responseSchema: GROQ_VALIDATION_OPINION_JSON_SCHEMA,
+          validateFn: (obj) => ValidationOpinionSchema.parse(obj),
+        },
       );
       return r.content;
     });

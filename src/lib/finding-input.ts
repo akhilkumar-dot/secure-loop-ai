@@ -167,13 +167,13 @@ ${data.snippet_with_line_numbers}
 
 Return JSON with exactly these keys:
 {
+  "likely_false_positive": {"value": true|false, "reason": "..."},
+  "confidence_note":   "empty string if confident",
   "what_it_is":        {"technical": "...", "simplified": "..."},
   "why_it_happened":   {"technical": "...", "simplified": "..."},
   "how_fix_works":     {"technical": "...", "simplified": "..."},
   "attack_idea":       "one or two sentences, in words only",
-  "key_takeaway":      "one sentence a student can remember",
-  "likely_false_positive": {"value": true|false, "reason": "..."},
-  "confidence_note":   "empty string if confident"
+  "key_takeaway":      "one sentence a student can remember"
 }
 
 Style: "technical" is for a developer (precise, 2-4 sentences). "simplified" is for a beginner (plain words, an everyday analogy is fine, 2-3 sentences, no jargon without explaining it).`;

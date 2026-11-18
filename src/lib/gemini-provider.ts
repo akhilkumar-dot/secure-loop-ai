@@ -13,6 +13,9 @@
  */
 import { GoogleGenerativeAI, type ResponseSchema } from "@google/generative-ai";
 import { redactKeys } from "./ai-provider-detector";
+import type { StageName } from "./stage-schemas";
+
+export type { StageName };
 
 export class GeminiProviderExhaustedError extends Error {
   isExhausted = true;
@@ -21,8 +24,6 @@ export class GeminiProviderExhaustedError extends Error {
     this.name = "GeminiProviderExhaustedError";
   }
 }
-
-export type StageName = "explanation_generation" | "patch_generation" | "default";
 
 function resolveModels(): string[] {
   const envPrimary =
@@ -48,6 +49,8 @@ function resolveModels(): string[] {
 const STAGE_MODELS: Record<StageName, string[]> = {
   explanation_generation: resolveModels(),
   patch_generation: resolveModels(),
+  triage: resolveModels(),
+  vulnerability_validation: resolveModels(),
   default: resolveModels(),
 };
 

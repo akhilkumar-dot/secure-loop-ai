@@ -15,17 +15,21 @@ export class OpenAIProvidersExhaustedError extends Error {
   }
 }
 
-export type StageName = "explanation_generation" | "patch_generation" | "default";
+import type { StageName } from "./stage-schemas";
+
+export type { StageName };
 
 export interface OpenAIConfig {
   apiKey?: string;
-  stageModels?: Record<StageName, string[]>;
+  stageModels?: Partial<Record<StageName, string[]>>;
   maxAttempts?: number;
 }
 
 export const DEFAULT_OPENAI_STAGE_MODELS: Record<StageName, string[]> = {
   patch_generation: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
   explanation_generation: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+  triage: ["gpt-4o-mini", "gpt-4o"],
+  vulnerability_validation: ["gpt-4o-mini", "gpt-4o"],
   default: ["gpt-4o-mini", "gpt-4o"],
 };
 
@@ -36,7 +40,7 @@ export class OpenAIProvider {
 
   constructor(config: OpenAIConfig = {}) {
     this.apiKey = (config.apiKey || "").trim();
-    this.stageModels = config.stageModels || DEFAULT_OPENAI_STAGE_MODELS;
+    this.stageModels = { ...DEFAULT_OPENAI_STAGE_MODELS, ...(config.stageModels || {}) };
     this.maxAttempts = config.maxAttempts || 4;
   }
 

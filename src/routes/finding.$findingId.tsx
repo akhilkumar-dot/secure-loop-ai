@@ -313,9 +313,9 @@ function FindingDetailPage() {
         simplified_explanation: realExp.output.what_it_is.simplified,
         attack_idea: realExp.output.attack_idea,
         key_takeaway: realExp.output.key_takeaway,
-        likely_false_positive: realExp.output.likely_false_positive.value,
-        false_positive_reason: realExp.output.likely_false_positive.reason,
-        confidence_note: realExp.output.confidence_note,
+        likely_false_positive: realExp.output.likely_false_positive?.value ?? null,
+        false_positive_reason: realExp.output.likely_false_positive?.reason ?? null,
+        confidence_note: realExp.output.confidence_note ?? "",
         raw_explanation: realExp.output as any,
         model: realExp.modelUsed,
         generated_at: new Date().toISOString(),
@@ -776,6 +776,26 @@ function FindingDetailPage() {
                     </p>
                   </div>
                 )}
+
+                {/* False positive assessment */}
+                <div className="border-t border-border/60 pt-3 flex items-center justify-between text-xs font-mono">
+                  <span className="text-subtle text-[11px]">false positive assessment:</span>
+                  <span
+                    className={
+                      finding.explanation.likely_false_positive === true
+                        ? "text-warning font-semibold text-[11px]"
+                        : finding.explanation.likely_false_positive === false
+                          ? "text-success text-[11px]"
+                          : "text-subtle italic text-[11px]"
+                    }
+                  >
+                    {finding.explanation.likely_false_positive === true
+                      ? "likely false positive"
+                      : finding.explanation.likely_false_positive === false
+                        ? "verified finding (not false positive)"
+                        : "not assessed"}
+                  </span>
+                </div>
 
                 <div className="border-t border-border pt-3 text-subtle/50 text-[10px] flex items-center justify-between">
                   <span>

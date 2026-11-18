@@ -4,7 +4,12 @@
  * Enforces per-provider rate limits so free-tier keys (e.g. Gemini 15 RPM, Groq 30 RPM)
  * do not hit 429 Quota Exceeded during scans.
  */
-import { detectProvider, redactKeys, type DetectedProvider } from "./ai-provider-detector";
+import {
+  detectProvider,
+  redactKeys,
+  PROVIDER_INFOS,
+  type DetectedProvider,
+} from "./ai-provider-detector";
 
 export interface RateLimitConfig {
   requestsPerMinute: number;
@@ -173,6 +178,27 @@ export interface RetryCallbackInfo {
  * 3. Fallback to backup key if primary key is exhausted
  * 4. Automatic key redaction in all error messages
  */
+export function isSameProviderBackup(primaryKey?: string, backupKey?: string): boolean {
+  if (!primaryKey || !backupKey || backupKey.trim() === "" || primaryKey.trim() === "") {
+    return false;
+  }
+  const pProvider = detectProvider(primaryKey);
+  const bProvider = detectProvider(backupKey);
+  return pProvider !== "unknown" && pProvider === bProvider;
+}
+
+export function getSameProviderBackupWarning(
+  primaryKey?: string,
+  backupKey?: string,
+): string | null {
+  if (isSameProviderBackup(primaryKey, backupKey)) {
+    const provider = detectProvider(primaryKey || "");
+    const name = PROVIDER_INFOS[provider]?.name || provider;
+    return `Backup key is from the same provider as primary (${name}). Rate limits and quota may be shared across keys in the same organization. Provide a backup key from a different provider (e.g. Gemini, Groq, OpenRouter) for true independent failover.`;
+  }
+  return null;
+}
+
 export async function executeWithRateLimitAndFallback<T>(params: {
   primaryKey: string;
   backupKey?: string | undefined;
@@ -252,13 +278,17 @@ export async function executeWithRateLimitAndFallback<T>(params: {
 
   // 2. Fallback to Backup Key if provided
   if (backupKey && backupKey !== primaryKey) {
+    if (isSameProviderBackup(primaryKey, backupKey)) {
+      const warnMsg = getSameProviderBackupWarning(primaryKey, backupKey);
+      if (warnMsg) console.warn(`[rate-limiter] ${warnMsg}`);
+    }
     try {
       const { result, provider } = await attemptWithKey(backupKey, true);
       return { result, keyUsed: "backup", providerUsed: provider };
     } catch (backupErr: any) {
       const backupError = redactKeys(backupErr?.message || String(backupErr), allActiveKeys);
       throw new AiExecutionError(
-        `Both primary and backup AI providers failed. Primary error: ${primaryError}. Backup error: ${backupError}`,
+        `Both primary and backup AI providers failed. Primary (${detectProvider(primaryKey)}): ${primaryError}. Backup (${detectProvider(backupKey)}): ${backupError}`,
         detectProvider(backupKey),
         "both",
         backupError,
@@ -272,7 +302,9 @@ export async function executeWithRateLimitAndFallback<T>(params: {
     primaryError?.toLowerCase().includes("rate limit") ||
     primaryError?.includes("429");
 
-  const quotaHint = isQuota ? " Please check your API key quota or try adding a backup key." : "";
+  // Remove duplicated "add a backup key" advice when a backup key already exists
+  const quotaHint =
+    isQuota && !backupKey ? " Please check your API key quota or try adding a backup key." : "";
 
   throw new AiExecutionError(
     `AI generation failed: ${primaryError || "Unknown provider error"}.${quotaHint}`,

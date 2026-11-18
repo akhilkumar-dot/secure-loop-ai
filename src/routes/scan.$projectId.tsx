@@ -16,6 +16,35 @@ import { runSast } from "@/lib/sast";
 import { recomputeScore } from "@/lib/score";
 import type { SastFinding } from "@/lib/sast";
 import { detectProvider, PROVIDER_INFOS } from "@/lib/ai-provider-detector";
+import { isSameProviderBackup } from "@/lib/rate-limiter";
+
+function isIgnoredPathOrLiteral(filePath: string, matchedText?: string): boolean {
+  if (!filePath) return false;
+  const p = filePath.toLowerCase();
+  if (
+    p.includes("/test/") ||
+    p.includes("/tests/") ||
+    p.includes("/__tests__/") ||
+    p.includes(".test.") ||
+    p.includes(".spec.") ||
+    p.includes("safe-control")
+  ) {
+    return true;
+  }
+  if (matchedText) {
+    const trimmed = matchedText.trim();
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+      (trimmed.startsWith("`") && trimmed.endsWith("`")) ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("/*")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export const Route = createFileRoute("/scan/$projectId")({
   head: () => ({
@@ -381,6 +410,8 @@ function ScanPage() {
     }
 
     const explanationMap = new Map<string, string>();
+    const falsePositiveFindings = new Set<string>();
+
     for (const f of findingsData ?? []) {
       try {
         const fileContent = fileMap.get(f.file_path);
@@ -391,6 +422,11 @@ function ScanPage() {
           user?.id,
           fileContent,
         );
+        const isFp = explanation.likely_false_positive === true;
+        if (isFp) {
+          falsePositiveFindings.add(f.id);
+        }
+
         const { data: expRow } = await supabase
           .from("explanations")
           .insert({
@@ -403,7 +439,7 @@ function ScanPage() {
             simplified_explanation: explanation.simplified_explanation,
             attack_idea: explanation.attack_idea ?? null,
             key_takeaway: explanation.key_takeaway ?? null,
-            likely_false_positive: explanation.likely_false_positive ?? false,
+            likely_false_positive: explanation.likely_false_positive ?? null,
             false_positive_reason: explanation.false_positive_reason ?? null,
             confidence_note: explanation.confidence_note ?? null,
             raw_explanation: (explanation.raw_explanation as any) ?? null,
@@ -413,11 +449,22 @@ function ScanPage() {
           .select("id")
           .single();
         if (expRow) explanationMap.set(f.id, expRow.id);
-        await supabase.from("findings").update({ status: "explained" }).eq("id", f.id);
-        addLog(`  ✓ explained: ${f.file_path}:${f.line_start}`, "ok");
+        await supabase
+          .from("findings")
+          .update({ status: isFp ? "likely_false_positive" : "explained" })
+          .eq("id", f.id);
+
+        if (isFp) {
+          addLog(
+            `  ⚑ flagged likely false positive: ${f.file_path}:${f.line_start ?? 1} (${explanation.false_positive_reason || "safe code"})`,
+            "warn",
+          );
+        } else {
+          addLog(`  ✓ explained: ${f.file_path}:${f.line_start ?? 1}`, "ok");
+        }
       } catch (err: any) {
         addLog(
-          `  ✖ explanation error (${f.file_path}:${f.line_start}): ${err?.message || String(err)}`,
+          `  ✖ explanation error (${f.file_path}:${f.line_start ?? 1}): ${err?.message || String(err)}`,
           "err",
         );
       }
@@ -430,6 +477,20 @@ function ScanPage() {
 
     const patchMap = new Map<string, string>();
     for (const f of findingsData ?? []) {
+      const isFp =
+        falsePositiveFindings.has(f.id) ||
+        f.status === "likely_false_positive" ||
+        f.status === "dismissed" ||
+        isIgnoredPathOrLiteral(f.file_path, f.matched_text);
+
+      if (isFp) {
+        addLog(
+          `  ⊘ skipping patch for false positive/suppressed: ${f.file_path}:${f.line_start ?? 1}`,
+          "dim",
+        );
+        continue;
+      }
+
       try {
         const fileContent = fileMap.get(f.file_path);
         const patch = await generatePatch(
@@ -454,9 +515,12 @@ function ScanPage() {
           .single();
         if (patchRow) patchMap.set(f.id, patchRow.id);
         await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
-        addLog(`  ✓ patch generated: ${f.file_path}`, "ok");
+        addLog(`  ✓ patch generated: ${f.file_path}:${f.line_start ?? 1}`, "ok");
       } catch (err: any) {
-        addLog(`  ✖ patch error (${f.file_path}): ${err?.message || String(err)}`, "err");
+        addLog(
+          `  ✖ patch error (${f.file_path}:${f.line_start ?? 1}): ${err?.message || String(err)}`,
+          "err",
+        );
       }
     }
 
@@ -743,9 +807,18 @@ function ScanPage() {
                   placeholder="Secondary key (e.g. Groq gsk_… or OpenRouter sk-or-…)"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
                 />
-                {backupApiKey ? (
+                {backupApiKey && isSameProviderBackup(aiApiKey, backupApiKey) ? (
+                  <p className="mt-1 font-mono text-[10px] text-warning/90 flex items-start gap-1">
+                    <AlertTriangle className="size-3 shrink-0 mt-0.5" />
+                    <span>
+                      Backup key is from the same provider ({PROVIDER_INFOS[backupProvider]?.name}).
+                      Quotas may be shared across the same organization. Use a different provider
+                      (e.g. Gemini, Groq, or OpenRouter) for true independent failover.
+                    </span>
+                  </p>
+                ) : backupApiKey ? (
                   <p className="mt-1 font-mono text-[10px] text-success/70">
-                    ✓ backup key active on rate limit failover
+                    ✓ independent backup key active on rate limit failover
                   </p>
                 ) : (
                   <p className="mt-1 font-mono text-[10px] text-subtle/50">

@@ -15,11 +15,13 @@ export class CohereProvidersExhaustedError extends Error {
   }
 }
 
-export type StageName = "explanation_generation" | "patch_generation" | "default";
+import type { StageName } from "./stage-schemas";
+
+export type { StageName };
 
 export interface CohereConfig {
   apiKey?: string;
-  stageModels?: Record<StageName, string[]>;
+  stageModels?: Partial<Record<StageName, string[]>>;
   maxAttempts?: number;
 }
 
@@ -38,6 +40,8 @@ export const DEFAULT_COHERE_STAGE_MODELS: Record<StageName, string[]> = {
     "command-r-08-2024",
     "command-nightly",
   ],
+  triage: ["command-r", "command-nightly"],
+  vulnerability_validation: ["command-r", "command-nightly"],
   default: ["command-r-plus", "command-r", "command-nightly"],
 };
 
@@ -48,7 +52,7 @@ export class CohereProvider {
 
   constructor(config: CohereConfig = {}) {
     this.apiKey = (config.apiKey || "").trim();
-    this.stageModels = config.stageModels || DEFAULT_COHERE_STAGE_MODELS;
+    this.stageModels = { ...DEFAULT_COHERE_STAGE_MODELS, ...(config.stageModels || {}) };
     this.maxAttempts = config.maxAttempts || 4;
   }
 

@@ -19,11 +19,13 @@ export class AllProvidersExhaustedError extends Error {
   }
 }
 
-export type StageName = "explanation_generation" | "patch_generation" | "default";
+import type { StageName } from "./stage-schemas";
+
+export type { StageName };
 
 export interface OpenRouterConfig {
   apiKey?: string;
-  stageModels?: Record<StageName, string[]>;
+  stageModels?: Partial<Record<StageName, string[]>>;
   referer?: string;
   title?: string;
   maxAttempts?: number;
@@ -38,6 +40,8 @@ export const DEFAULT_STAGE_MODELS: Record<StageName, string[]> = {
     "qwen/qwen3-coder",
     "deepseek/deepseek-r1",
   ],
+  triage: ["qwen/qwen3-coder", "mistralai/codestral-2508"],
+  vulnerability_validation: ["qwen/qwen3-coder", "mistralai/codestral-2508"],
   default: ["meta-llama/llama-3.3-70b-instruct", "mistralai/codestral-2508"],
 };
 
@@ -50,7 +54,7 @@ export class OpenRouterProvider {
 
   constructor(config: OpenRouterConfig = {}) {
     this.apiKey = (config.apiKey || "").trim();
-    this.stageModels = config.stageModels || DEFAULT_STAGE_MODELS;
+    this.stageModels = { ...DEFAULT_STAGE_MODELS, ...(config.stageModels || {}) };
     this.referer = config.referer || "https://secureloop.ai";
     this.title = config.title || "SecureLoop AI";
     this.maxAttempts = config.maxAttempts || 4;
