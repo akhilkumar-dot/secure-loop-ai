@@ -48,6 +48,10 @@ import {
 import { detectAndSaveRecurringMisconceptions, MISCONCEPTION_LABELS } from "@/lib/misconception";
 import { updateMasteryAfterAnswer } from "@/lib/mastery-db";
 import { checkTierAllowed } from "@/lib/tier-progression";
+import {
+  generateAiQuizQuestion,
+  type FindingQuizContext,
+} from "@/lib/ai-quiz-generator";
 
 export const Route = createFileRoute("/finding/$findingId")({
   head: () => ({
@@ -92,6 +96,7 @@ function FindingDetailPage() {
   const [unlockedTiers, setUnlockedTiers] = useState<Set<Tier>>(new Set(["easy"]));
   const [attemptCount, setAttemptCount] = useState(0);
   const [loadingTier, setLoadingTier] = useState(false);
+  const [quizIsAiGenerated, setQuizIsAiGenerated] = useState(false);
   const [explanationMode, setExplanationMode] = useState<"technical" | "simplified">("technical");
 
   // AI on-demand generation state
@@ -241,15 +246,16 @@ function FindingDetailPage() {
     setShowRejectDialog(false);
     setDeciding(false);
     setShowQuiz(true);
-    // Eagerly load the quiz question for this vuln class
+    // Eagerly load the quiz question for this vuln class — pass finding for AI context
     if (finding.vulnerability_class) {
-      await loadQuizForFinding(finding.vulnerability_class as VulnClass);
+      await loadQuizForFinding(finding.vulnerability_class as VulnClass, finding);
     }
   }
 
-  async function loadQuizForFinding(vulnClass: VulnClass) {
+  async function loadQuizForFinding(vulnClass: VulnClass, currentFinding?: FullFinding | null) {
     if (!user) return;
     setLoadingTier(true);
+    setQuizIsAiGenerated(false);
 
     // Fetch user's attempt history for this vuln class (server-side tier check)
     const { data: pastAttempts } = await supabase
@@ -276,6 +282,45 @@ function FindingDetailPage() {
     const count = tierAttempts.length;
     setAttemptCount(count);
 
+    // ── Try AI-generated question first ────────────────────────────────────
+    const apiKey =
+      (typeof window !== "undefined"
+        ? sessionStorage.getItem("sl_ai_key") ?? ""
+        : "") || regenKey;
+
+    const f = currentFinding ?? finding;
+
+    if (apiKey && f) {
+      try {
+        const codeSnippet = f.code_lines
+          ? (f.code_lines as Array<{ n: number; code: string }>)
+              .map((l) => `${l.n}: ${l.code}`)
+              .join("\n")
+          : null;
+
+        const ctx: FindingQuizContext = {
+          vulnClass,
+          tier: bestTier,
+          cwe: f.cwe ?? null,
+          filePath: f.file_path ?? null,
+          rawMessage: f.raw_message ?? null,
+          codeSnippet,
+          ruleId: f.rule_id ?? null,
+          severity: f.severity ?? null,
+        };
+
+        const aiQuestion = await generateAiQuizQuestion(ctx, apiKey);
+        setActiveQuestion(aiQuestion);
+        setQuizIsAiGenerated(true);
+        setLoadingTier(false);
+        return;
+      } catch (err) {
+        // AI generation failed — fall back to static bank silently
+        console.warn("[quiz] AI question generation failed, falling back to static bank:", err);
+      }
+    }
+
+    // ── Fallback: static quiz bank ──────────────────────────────────────────
     const question = pickQuestion(vulnClass, bestTier, count);
     setActiveQuestion(question);
     setLoadingTier(false);
@@ -1460,12 +1505,15 @@ function FindingDetailPage() {
             </p>
             {loadingTier ? (
               <div className="rounded-lg border border-border bg-elevated p-6 font-mono text-xs text-subtle animate-pulse">
-                loading question…
+                <span className="inline-flex items-center gap-2">
+                  <Sparkles className="size-3 text-accent animate-spin" />
+                  generating question from your finding…
+                </span>
               </div>
             ) : quiz ? (
               <TerminalWindow title={`quiz — ${finding.vulnerability_class} · ${activeTier}`}>
-                {/* Tier badge */}
-                <div className="flex items-center gap-2 mb-3">
+                {/* Tier badge + AI badge */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span className="font-mono text-[10px] text-subtle">// tier:</span>
                   <span
                     className={`font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
@@ -1480,6 +1528,12 @@ function FindingDetailPage() {
                   </span>
                   {activeTier !== "easy" && (
                     <span className="font-mono text-[10px] text-success">unlocked</span>
+                  )}
+                  {quizIsAiGenerated && (
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-full">
+                      <Sparkles className="size-2.5" />
+                      AI · based on this finding
+                    </span>
                   )}
                 </div>
                 <div className="text-foreground mb-4">{quiz.question}</div>
