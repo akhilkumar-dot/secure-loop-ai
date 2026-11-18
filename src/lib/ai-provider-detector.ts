@@ -130,8 +130,17 @@ export function validateEndpointUrl(url: string): {
     };
   }
 
-  // Remove trailing slashes
-  const normalizedUrl = parsed.toString().replace(/\/+$/, "");
+  // Remove trailing slashes and ensure path ends with /v1
+  let path = parsed.pathname.replace(/\/+$/, "");
+  if (!path.endsWith("/v1")) {
+    if (path === "" || path === "/") {
+      path = "/v1";
+    } else {
+      path = `${path}/v1`;
+    }
+  }
+
+  const normalizedUrl = `${parsed.origin}${path}`;
 
   return { isValid: true, normalizedUrl };
 }

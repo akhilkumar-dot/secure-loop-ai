@@ -12,4 +12,15 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      proxy: {
+        "/freellm": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/freellm/, ""),
+        },
+      },
+    },
+  },
 });

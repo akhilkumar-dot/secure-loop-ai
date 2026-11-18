@@ -7,6 +7,8 @@
  * - Halts provider immediately on authentication rejection.
  * - Tests primary key, and falls back to testing backup key if primary is rejected.
  * - Never includes more than the last 4 characters of any key in logs or messages.
+ * - Classifies "Failed to fetch" into mixed-content / ECONNREFUSED / CORS / LNA
+ *   so the user sees a checklist instead of a generic error.
  */
 
 import {
@@ -17,6 +19,7 @@ import {
   PROVIDER_INFOS,
   type DetectedProvider,
 } from "./ai-provider-detector";
+import { classifyFetchFailure, buildPreflightChecklist, isDeployedHttps } from "./preflight-errors";
 
 export interface PreflightCheckResult {
   ok: boolean;
@@ -25,6 +28,12 @@ export interface PreflightCheckResult {
   status?: number | undefined;
   isAuthError: boolean;
   errorMessage?: string | undefined;
+  /** Short checklist items to show when ok:false and !isAuthError */
+  checklist?: string[] | undefined;
+  /** Workaround text for mixed content / LNA failures */
+  workaround?: string | undefined;
+  /** Exact URL that was tried (for display) */
+  urlTried?: string | undefined;
   keyHint?: string | undefined;
 }
 
@@ -72,9 +81,11 @@ export async function preflightCheckProvider(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let lastUrlTried = "";
 
   try {
     if (provider === "groq") {
+      lastUrlTried = "https://api.groq.com/openai/v1/models";
       const res = await fetch("https://api.groq.com/openai/v1/models", {
         method: "GET",
         headers: {
@@ -126,6 +137,7 @@ export async function preflightCheckProvider(
 
     if (provider === "gemini") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${trimmedKey}`;
+      lastUrlTried = "https://generativelanguage.googleapis.com/v1beta/models";
       const res = await fetch(url, {
         method: "GET",
         signal: controller.signal,
@@ -181,6 +193,7 @@ export async function preflightCheckProvider(
     }
 
     if (provider === "openrouter") {
+      lastUrlTried = "https://openrouter.ai/api/v1/auth/key";
       const res = await fetch("https://openrouter.ai/api/v1/auth/key", {
         method: "GET",
         headers: {
@@ -251,7 +264,30 @@ export async function preflightCheckProvider(
         };
       }
 
-      const res = await fetch(`${normalizedUrl}/models`, {
+      // Warn about mixed content before even attempting the fetch (saves a confusing error)
+      const modelsUrl = `${normalizedUrl}/models`;
+      lastUrlTried = modelsUrl;
+      if (
+        isDeployedHttps() &&
+        (normalizedUrl.startsWith("http://") ||
+          normalizedUrl.match(/^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.)/))
+      ) {
+        const kind = normalizedUrl.startsWith("http://") ? "mixed_content" : "local_network_access";
+        const cl = buildPreflightChecklist(modelsUrl, providerName, keyHint, kind);
+        return {
+          ok: false,
+          provider,
+          providerName,
+          isAuthError: false,
+          errorMessage: cl.message,
+          checklist: cl.checklist,
+          workaround: cl.workaround,
+          urlTried: modelsUrl,
+          keyHint,
+        };
+      }
+
+      const res = await fetch(modelsUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${trimmedKey}`,
@@ -268,6 +304,7 @@ export async function preflightCheckProvider(
           status: res.status,
           isAuthError: true,
           errorMessage: `${providerName} rejected your API key (HTTP ${res.status}). Check that the key belongs to ${providerName}.`,
+          urlTried: modelsUrl,
           keyHint,
         };
       }
@@ -280,6 +317,7 @@ export async function preflightCheckProvider(
           status: 429,
           isAuthError: false,
           errorMessage: `${providerName} rate limit or free quota reached.`,
+          urlTried: modelsUrl,
           keyHint,
         };
       }
@@ -293,14 +331,16 @@ export async function preflightCheckProvider(
           status: res.status,
           isAuthError: false,
           errorMessage: `${providerName} returned HTTP ${res.status}: ${body.slice(0, 200)}`,
+          urlTried: modelsUrl,
           keyHint,
         };
       }
 
-      return { ok: true, provider, providerName, keyHint, isAuthError: false };
+      return { ok: true, provider, providerName, keyHint, isAuthError: false, urlTried: modelsUrl };
     }
 
     if (provider === "cohere") {
+      lastUrlTried = "https://api.cohere.com/v2/models";
       const res = await fetch("https://api.cohere.com/v2/models", {
         method: "GET",
         headers: {
@@ -352,6 +392,7 @@ export async function preflightCheckProvider(
 
     if (provider === "openai") {
       try {
+        lastUrlTried = "https://api.openai.com/v1/models";
         const res = await fetch("https://api.openai.com/v1/models", {
           method: "GET",
           headers: {
@@ -410,15 +451,21 @@ export async function preflightCheckProvider(
         providerName,
         isAuthError: false,
         errorMessage: `${providerName} pre-flight check timed out after ${timeoutMs}ms.`,
+        urlTried: lastUrlTried || undefined,
         keyHint,
       };
     }
+    const kind = classifyFetchFailure(lastUrlTried, err?.name, err?.message);
+    const cl = buildPreflightChecklist(lastUrlTried, providerName, keyHint, kind);
     return {
       ok: false,
       provider,
       providerName,
       isAuthError: false,
-      errorMessage: `Could not reach ${providerName}: ${errorMsg}`,
+      errorMessage: cl.message,
+      checklist: cl.checklist,
+      workaround: cl.workaround,
+      urlTried: lastUrlTried || undefined,
       keyHint,
     };
   } finally {

@@ -25,7 +25,7 @@ import {
 } from "@/lib/ai-provider-detector";
 import { isSameProviderBackup } from "@/lib/rate-limiter";
 import { fetchCustomEndpointModels } from "@/lib/custom-openai";
-import { preflightCheckProvider } from "@/lib/preflight-checker";
+import { preflightCheckProvider, type PreflightCheckResult } from "@/lib/preflight-checker";
 
 function isIgnoredPathOrLiteral(filePath: string, matchedText?: string): boolean {
   if (!filePath) return false;
@@ -136,6 +136,8 @@ function ScanPage() {
   const [customModels, setCustomModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [preflightError, setPreflightError] = useState<PreflightCheckResult | null>(null);
+  const [checkingPreflight, setCheckingPreflight] = useState(false);
   const [githubToken, setGithubToken] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
@@ -203,6 +205,56 @@ function ScanPage() {
     }
   }
 
+  async function handleRetryPreflight() {
+    const effectiveKey = aiApiKey.trim();
+    if (!effectiveKey) return;
+    setCheckingPreflight(true);
+    try {
+      const res = await preflightCheckProvider(effectiveKey, {
+        explicitProvider: primaryProviderChoice !== "auto" ? primaryProviderChoice : undefined,
+        baseUrl: customBaseUrl,
+      });
+      if (res.ok) {
+        setPreflightError(null);
+        setError(null);
+        addLog(`✓ ${res.providerName} pre-flight check succeeded (${res.keyHint})`, "ok");
+      } else {
+        setPreflightError(res);
+        setError(res.errorMessage || "Pre-flight check failed.");
+        addLog(`✖ ${res.errorMessage}`, "err");
+        if (res.urlTried) addLog(`  url tried: ${res.urlTried}`, "dim");
+        if (res.checklist && res.checklist.length > 0) {
+          addLog("  checklist to verify:", "warn");
+          res.checklist.forEach((item) => addLog(`   • ${item}`, "dim"));
+        }
+        if (res.workaround) addLog(`  workaround: ${res.workaround}`, "warn");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to run preflight check.");
+    } finally {
+      setCheckingPreflight(false);
+    }
+  }
+
+  function handleUseBackupProvider() {
+    if (!backupApiKey) return;
+    const newPrimary = backupApiKey;
+    const newProviderChoice = backupProviderChoice;
+    setAiApiKey(newPrimary);
+    sessionStorage.setItem("sl_ai_key", newPrimary);
+    setPrimaryProviderChoice(newProviderChoice);
+    sessionStorage.setItem("sl_ai_provider_choice", newProviderChoice);
+
+    setBackupApiKey("");
+    sessionStorage.removeItem("sl_ai_backup_key");
+    setBackupProviderChoice("auto");
+    sessionStorage.setItem("sl_ai_backup_provider_choice", "auto");
+
+    setPreflightError(null);
+    setError(null);
+    addLog("Switched primary provider to backup key.", "warn");
+  }
+
   async function startScan() {
     if (!user || !project) return;
     const effectiveKey = aiApiKey.trim();
@@ -247,6 +299,7 @@ function ScanPage() {
     setLogs([]);
     setDone(false);
     setError(null);
+    setPreflightError(null);
     abortRef.current = false;
 
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
@@ -399,28 +452,43 @@ function ScanPage() {
             );
             effectiveKey = effectiveBackupKey;
             effectiveBackupKey = "";
+            setPreflightError(null);
           } else {
             const fullErr = `${preflight.errorMessage} Backup key also failed: ${backupPreflight.errorMessage}`;
             addLog(`✖ ${fullErr}`, "err");
             setError(fullErr);
+            setPreflightError(backupPreflight);
             await updateScanStatus(scanRun.id, "failed");
             setScanning(false);
             return;
           }
         } else {
           setError(preflight.errorMessage || "API key rejected.");
+          setPreflightError(preflight);
           await updateScanStatus(scanRun.id, "failed");
           setScanning(false);
           return;
         }
       } else {
         setError(preflight.errorMessage || "Pre-flight check failed.");
+        setPreflightError(preflight);
         addLog(`✖ ${preflight.errorMessage}`, "err");
+        if (preflight.urlTried) {
+          addLog(`  url tried: ${preflight.urlTried}`, "dim");
+        }
+        if (preflight.checklist && preflight.checklist.length > 0) {
+          addLog("  checklist to verify:", "warn");
+          preflight.checklist.forEach((item) => addLog(`   • ${item}`, "dim"));
+        }
+        if (preflight.workaround) {
+          addLog(`  workaround: ${preflight.workaround}`, "warn");
+        }
         await updateScanStatus(scanRun.id, "failed");
         setScanning(false);
         return;
       }
     } else {
+      setPreflightError(null);
       addLog(`  ✓ ${providerLabel} authenticated (${preflight.keyHint})`, "ok");
     }
 
@@ -969,9 +1037,24 @@ function ScanPage() {
                   ))}
                 </select>
 
-                <label className="block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  Primary API Key
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                    Primary API Key
+                  </label>
+                  {aiApiKey.trim() && primaryProvider !== "unknown" && (
+                    <button
+                      type="button"
+                      onClick={handleRetryPreflight}
+                      disabled={checkingPreflight}
+                      className="flex items-center gap-1 font-mono text-[9px] text-accent hover:underline disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw
+                        className={`size-2.5 ${checkingPreflight ? "animate-spin" : ""}`}
+                      />
+                      {checkingPreflight ? "testing…" : "test connection"}
+                    </button>
+                  )}
+                </div>
                 <input
                   type="password"
                   value={aiApiKey}
@@ -1295,12 +1378,76 @@ function ScanPage() {
           </TerminalWindow>
         </div>
 
-        {error && (
+        {preflightError ? (
+          <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-4 space-y-3 font-mono text-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="size-4 shrink-0 text-danger mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-danger">
+                  {preflightError.providerName} Pre-Flight Check Failed
+                </p>
+                <p className="text-foreground/90">{preflightError.errorMessage}</p>
+                {preflightError.urlTried && (
+                  <p className="text-[11px] text-subtle">
+                    URL tried: <code className="text-foreground">{preflightError.urlTried}</code>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {preflightError.checklist && preflightError.checklist.length > 0 && (
+              <div className="rounded border border-border/60 bg-background/60 p-3 space-y-1.5">
+                <p className="font-semibold text-[11px] text-foreground">
+                  Troubleshooting checklist:
+                </p>
+                <ul className="space-y-1 text-[11px] text-subtle">
+                  {preflightError.checklist.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-1.5">
+                      <span className="text-accent">•</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {preflightError.workaround && (
+              <div className="rounded border border-accent/30 bg-accent/5 p-3 space-y-1">
+                <p className="font-semibold text-[11px] text-accent">Recommended workaround:</p>
+                <p className="text-[11px] text-foreground/80 leading-relaxed">
+                  {preflightError.workaround}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleRetryPreflight}
+                disabled={checkingPreflight}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1 text-[11px] text-foreground hover:bg-background transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`size-3 ${checkingPreflight ? "animate-spin" : ""}`} />
+                {checkingPreflight ? "checking…" : "retry check"}
+              </button>
+
+              {backupApiKey && (
+                <button
+                  type="button"
+                  onClick={handleUseBackupProvider}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] text-accent hover:bg-accent/20 transition-colors cursor-pointer"
+                >
+                  use backup provider
+                </button>
+              )}
+            </div>
+          </div>
+        ) : error ? (
           <div className="mt-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-danger" />
             <p className="font-mono text-xs text-danger">{error}</p>
           </div>
-        )}
+        ) : null}
 
         {/* Actions */}
         <div className="mt-6 flex items-center gap-3">
