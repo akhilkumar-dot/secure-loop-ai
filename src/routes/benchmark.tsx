@@ -11,6 +11,8 @@ import {
   Clock,
   ExternalLink,
   ShieldAlert,
+  RefreshCw,
+  Check,
 } from "lucide-react";
 import { Logo } from "@/components/chrome";
 import { runBenchmark, type BenchmarkSummary, type SampleResult } from "@/lib/benchmark-runner";
@@ -50,6 +52,9 @@ function BenchmarkPage() {
   const [lastRunTime, setLastRunTime] = useState<string>(new Date().toLocaleTimeString());
   const [activeTab, setActiveTab] = useState<"results" | "comparison">("results");
   const [dbSuppressionCount, setDbSuppressionCount] = useState<number | null>(null);
+  const [runKey, setRunKey] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const [runNotification, setRunNotification] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadSuppressionStats() {
@@ -63,10 +68,10 @@ function BenchmarkPage() {
     loadSuppressionStats();
   }, []);
 
-  // Run benchmark dynamically with current manual FP overrides
+  // Run benchmark dynamically with current manual FP overrides and run trigger
   const summary: BenchmarkSummary = useMemo(() => {
     return runBenchmark(manualFPs);
-  }, [manualFPs]);
+  }, [manualFPs, runKey]);
 
   // Comparison table state (loaded with default template placeholders)
   const [comparisonRows, setComparisonRows] = useState<ManualComparisonRow[]>(() =>
@@ -93,8 +98,19 @@ function BenchmarkPage() {
     }));
   }
 
-  function handleReRun() {
-    setLastRunTime(new Date().toLocaleTimeString());
+  async function handleReRun() {
+    setIsRunning(true);
+    setRunNotification(null);
+
+    // Give browser a frame to show the running animation
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    setRunKey((k) => k + 1);
+    const now = new Date().toLocaleTimeString();
+    setLastRunTime(now);
+    setIsRunning(false);
+    setRunNotification(`Benchmark re-run complete: ${summary.totalSamples} samples scanned at ${now}`);
+    setTimeout(() => setRunNotification(null), 3500);
   }
 
   function handleDownloadCSV() {
@@ -151,7 +167,7 @@ function BenchmarkPage() {
               SAST & Patch Validation Benchmark
             </h1>
             <p className="mt-1 text-xs text-subtle max-w-2xl">
-              Evaluated on 18 ground-truth samples from OWASP WebGoat, OWASP Juice Shop, and OWASP
+              Evaluated on {summary.totalSamples} ground-truth samples from OWASP WebGoat, OWASP Juice Shop, and OWASP
               NodeGoat. Un-cherry-picked metrics showing true positives, false negatives, and
               false-positive rate.
             </p>
@@ -160,10 +176,11 @@ function BenchmarkPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleReRun}
-              className="pill-hover flex items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-foreground cursor-pointer"
+              disabled={isRunning}
+              className="pill-hover flex items-center gap-2 rounded-full border border-border bg-elevated px-4 py-2 font-mono text-xs text-foreground cursor-pointer disabled:opacity-50"
             >
-              <Play className="size-3 text-accent" />
-              re-run benchmark
+              <RefreshCw className={`size-3 text-accent ${isRunning ? "animate-spin" : ""}`} />
+              {isRunning ? "running benchmark…" : "re-run benchmark"}
             </button>
             <button
               onClick={handleDownloadCSV}
@@ -174,6 +191,14 @@ function BenchmarkPage() {
             </button>
           </div>
         </div>
+
+        {/* Re-run Notification */}
+        {runNotification && (
+          <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-2.5 font-mono text-xs text-success flex items-center gap-2 transition-all animate-fadeIn">
+            <Check className="size-3.5 shrink-0" />
+            <span>{runNotification}</span>
+          </div>
+        )}
 
         {/* Metrics Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -235,7 +260,9 @@ function BenchmarkPage() {
                 {summary.totalRuntimeMs}ms
               </span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-subtle/80">last run at {lastRunTime}</p>
+            <p className="mt-1 font-mono text-[10px] text-subtle/80">
+              {isRunning ? "evaluating samples…" : `last run at ${lastRunTime}`}
+            </p>
           </div>
         </div>
 

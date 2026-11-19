@@ -214,5 +214,89 @@
     "source": "OWASP Benchmark / CWE-798",
     "license": "CC-BY-SA-4.0",
     "description": "Hardcoded plaintext database password assigned in database connection options."
+  },
+  {
+    "id": "path-01",
+    "name": "Path Traversal via path.join",
+    "file": "path-01-traversal.js",
+    "vulnClass": "other",
+    "cwe": "CWE-22",
+    "expectedRule": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+    "isVulnerable": true,
+    "source": "OWASP NodeGoat",
+    "license": "Apache-2.0",
+    "description": "User-supplied filename joined into filesystem path without boundary checks, enabling directory traversal."
+  },
+  {
+    "id": "path-02",
+    "name": "Safe Path Normalization with path.basename (Safe Control)",
+    "file": "path-02-safe-control.js",
+    "vulnClass": "other",
+    "cwe": "CWE-22",
+    "expectedRule": "none",
+    "isVulnerable": false,
+    "source": "OWASP Benchmark",
+    "license": "Apache-2.0",
+    "description": "Safe control isolating filename with path.basename() prior to path.resolve(), preventing path escape."
+  },
+  {
+    "id": "cmd-02",
+    "name": "Safe Process Execution with Argument Array (Safe Control)",
+    "file": "cmd-02-safe-control.js",
+    "vulnClass": "other",
+    "cwe": "CWE-78",
+    "expectedRule": "none",
+    "isVulnerable": false,
+    "source": "OWASP Benchmark",
+    "license": "Apache-2.0",
+    "description": "Safe control using child_process.execFile() with static binary and argument array, bypassing shell invocation."
+  },
+  {
+    "id": "cred-02",
+    "name": "Environment-Backed Database Credentials (Safe Control)",
+    "file": "cred-02-safe-control.js",
+    "vulnClass": "other",
+    "cwe": "CWE-798",
+    "expectedRule": "none",
+    "isVulnerable": false,
+    "source": "OWASP Benchmark / CWE-798",
+    "license": "Apache-2.0",
+    "description": "Safe control retrieving production database credentials dynamically from process.env variables."
+  },
+  {
+    "id": "sqli-05",
+    "name": "Spring JDBC Dynamic SQL Query String Concatenation",
+    "file": "sqli-05-spring-concat.java",
+    "vulnClass": "sqli",
+    "cwe": "CWE-89",
+    "expectedRule": "java.spring.security.audit.sqli.spring-sqli-concat",
+    "isVulnerable": true,
+    "source": "OWASP WebGoat (SqlInjectionLesson.java)",
+    "license": "GPL-2.0",
+    "description": "Spring JdbcTemplate query constructed by concatenating user inputs into a SQL statement without parameters."
+  },
+  {
+    "id": "cmd-03",
+    "name": "ProcessBuilder Shell Command Injection in Java",
+    "file": "cmd-03-processbuilder.java",
+    "vulnClass": "other",
+    "cwe": "CWE-78",
+    "expectedRule": "java.lang.security.audit.command-injection.process-builder",
+    "isVulnerable": true,
+    "source": "OWASP WebGoat",
+    "license": "GPL-2.0",
+    "description": "Java ProcessBuilder invoking a system shell with user-supplied command concatenation."
+  },
+  {
+    "id": "xss-05",
+    "name": "Servlet Response PrintWriter XSS",
+    "file": "xss-05-servlet-writer.java",
+    "vulnClass": "xss",
+    "cwe": "CWE-79",
+    "expectedRule": "java.lang.security.audit.xss.servlet-response-writer",
+    "isVulnerable": true,
+    "source": "OWASP WebGoat / Benchmark",
+    "license": "GPL-2.0",
+    "description": "HttpServletResponse PrintWriter directly writing unescaped user parameter to HTTP response stream."
   }
 ]

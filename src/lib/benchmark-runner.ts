@@ -565,6 +565,183 @@ module.exports = connection;`,
 +  password: process.env.DB_PASSWORD
  });`,
   },
+
+  // ── New samples (19–25) ─────────────────────────────────────────────────────
+
+  {
+    id: "path-01",
+    name: "Path Traversal via path.join (Node.js)",
+    file: "benchmark/samples/path-01-traversal.js",
+    vulnClass: "other",
+    cwe: "CWE-22",
+    expectedRule: "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+    isVulnerable: true,
+    source: "OWASP Benchmark / CWE-22",
+    license: "CC-BY-SA-4.0",
+    description: "path.join called with unsanitised user input allows directory traversal (../../etc/passwd).",
+    code: `const path = require('path');
+const fs   = require('fs');
+
+module.exports = function serveFile(req, res) {
+  const filePath = path.join(__dirname, 'public', req.query.file);
+  res.sendFile(filePath);
+};`,
+    canonicalPatch: `@@ -4,3 +4,5 @@
+ module.exports = function serveFile(req, res) {
+-  const filePath = path.join(__dirname, 'public', req.query.file);
+-  res.sendFile(filePath);
++  const safe = path.basename(req.query.file);
++  const filePath = path.resolve(__dirname, 'public', safe);
++  if (!filePath.startsWith(path.resolve(__dirname, 'public'))) return res.status(403).end();
++  res.sendFile(filePath);
+ };`,
+  },
+
+  {
+    id: "path-02",
+    name: "Safe File Serving with basename + resolve (Safe Control)",
+    file: "benchmark/samples/path-02-safe-control.js",
+    vulnClass: "other",
+    cwe: "CWE-22",
+    expectedRule: "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+    isVulnerable: false,
+    source: "OWASP Benchmark / CWE-22",
+    license: "CC-BY-SA-4.0",
+    description: "basename() strips directory components and resolve() anchors to the public root — no traversal possible.",
+    code: `const path = require('path');
+const fs   = require('fs');
+
+module.exports = function serveFile(req, res) {
+  const safe     = path.basename(req.query.file);
+  const filePath = path.resolve(__dirname, 'public', safe);
+  if (!filePath.startsWith(path.resolve(__dirname, 'public'))) {
+    return res.status(403).end();
+  }
+  res.sendFile(filePath);
+};`,
+  },
+
+  {
+    id: "cmd-02",
+    name: "Safe execFile with Static Binary (Safe Control)",
+    file: "benchmark/samples/cmd-02-safe-control.js",
+    vulnClass: "other",
+    cwe: "CWE-78",
+    expectedRule: "javascript.lang.security.audit.command-injection.exec",
+    isVulnerable: false,
+    source: "OWASP Benchmark / CWE-78",
+    license: "CC-BY-SA-4.0",
+    description: "execFile with a static binary path and an array of arguments prevents shell injection.",
+    code: `const { execFile } = require('child_process');
+
+module.exports = function runGitLog(branch, callback) {
+  const safeArgs = ['log', '--oneline', '-10', branch.replace(/[^a-zA-Z0-9/_-]/g, '')];
+  execFile('/usr/bin/git', safeArgs, { shell: false }, callback);
+};`,
+  },
+
+  {
+    id: "cred-02",
+    name: "Environment-Backed Database Credentials (Safe Control)",
+    file: "benchmark/samples/cred-02-safe-control.js",
+    vulnClass: "other",
+    cwe: "CWE-798",
+    expectedRule: "javascript.lang.security.audit.hardcoded-password.hardcoded-password-string",
+    isVulnerable: false,
+    source: "OWASP Benchmark / CWE-798",
+    license: "CC-BY-SA-4.0",
+    description: "Password is loaded from the environment at runtime — no hardcoded secret present.",
+    code: `const mysql = require('mysql2');
+
+const connection = mysql.createConnection({
+  host:     process.env.DB_HOST     || 'localhost',
+  user:     process.env.DB_USER     || 'app',
+  password: process.env.DB_PASSWORD,
+});
+
+module.exports = connection;`,
+  },
+
+  {
+    id: "sqli-05",
+    name: "Spring JdbcTemplate String Concatenation (SQL Injection)",
+    file: "benchmark/samples/sqli-05-spring-concat.java",
+    vulnClass: "sqli",
+    cwe: "CWE-89",
+    expectedRule: "java.spring.security.audit.sqli.spring-sqli-concat",
+    isVulnerable: true,
+    source: "OWASP Benchmark / CWE-89",
+    license: "CC-BY-SA-4.0",
+    description: "Spring JdbcTemplate query built by string concatenation allows SQL injection via username parameter.",
+    code: `import org.springframework.jdbc.core.JdbcTemplate;
+
+public class UserRepository {
+    private JdbcTemplate jdbc;
+
+    public List<Map<String, Object>> findByUsername(String username) {
+        String sql = "SELECT * FROM users WHERE username = '" + username + "'";
+        return jdbc.queryForList(sql);
+    }
+}`,
+    canonicalPatch: `@@ -6,3 +6,3 @@
+-        String sql = "SELECT * FROM users WHERE username = '" + username + "'";
+-        return jdbc.queryForList(sql);
++        String sql = "SELECT * FROM users WHERE username = ?";
++        return jdbc.queryForList(sql, username);`,
+  },
+
+  {
+    id: "cmd-03",
+    name: "Java ProcessBuilder Shell Injection (Command Injection)",
+    file: "benchmark/samples/cmd-03-processbuilder.java",
+    vulnClass: "other",
+    cwe: "CWE-78",
+    expectedRule: "java.lang.security.audit.command-injection.process-builder",
+    isVulnerable: true,
+    source: "OWASP Benchmark / CWE-78",
+    license: "CC-BY-SA-4.0",
+    description: "ProcessBuilder invokes 'sh -c' with unsanitised user input, enabling shell metacharacter injection.",
+    code: `import java.io.*;
+
+public class NetworkUtil {
+    public static String ping(String targetHost) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("sh", "-c", "ping -c 1 " + targetHost);
+        Process proc = pb.start();
+        return new String(proc.getInputStream().readAllBytes());
+    }
+}`,
+    canonicalPatch: `@@ -4,3 +4,3 @@
+-        ProcessBuilder pb = new ProcessBuilder("sh", "-c", "ping -c 1 " + targetHost);
++        ProcessBuilder pb = new ProcessBuilder("ping", "-c", "1", targetHost);`,
+  },
+
+  {
+    id: "xss-05",
+    name: "Java Servlet PrintWriter XSS (Reflected XSS)",
+    file: "benchmark/samples/xss-05-servlet-writer.java",
+    vulnClass: "xss",
+    cwe: "CWE-79",
+    expectedRule: "java.lang.security.audit.xss.servlet-response-writer",
+    isVulnerable: true,
+    source: "OWASP Benchmark / CWE-79",
+    license: "CC-BY-SA-4.0",
+    description: "Servlet writes unsanitised request parameter directly into the HTML response body.",
+    code: `import javax.servlet.http.*;
+import java.io.*;
+
+public class GreetServlet extends HttpServlet {
+    protected void doGet(HttpServletRequest req, HttpServletResponse res)
+            throws ServletException, IOException {
+        String name = req.getParameter("name");
+        res.setContentType("text/html");
+        res.getWriter().println("<h1>Welcome " + name + "</h1>");
+    }
+}`,
+    canonicalPatch: `@@ -7,3 +7,4 @@
+-        res.getWriter().println("<h1>Welcome " + name + "</h1>");
++        String safeName = org.owasp.encoder.Encode.forHtml(name);
++        res.getWriter().println("<h1>Welcome " + safeName + "</h1>");`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

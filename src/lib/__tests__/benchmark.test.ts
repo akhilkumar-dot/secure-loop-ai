@@ -10,8 +10,8 @@ import { describe, it, expect } from "vitest";
 import { runBenchmark, BENCHMARK_SAMPLES } from "../benchmark-runner";
 
 describe("runBenchmark Suite", () => {
-  it("includes all 18 samples across 4 vuln classes plus controls", () => {
-    expect(BENCHMARK_SAMPLES).toHaveLength(18);
+  it("includes all 25 samples across 4 vuln classes plus controls", () => {
+    expect(BENCHMARK_SAMPLES).toHaveLength(25);
     const classes = new Set(BENCHMARK_SAMPLES.map((s) => s.vulnClass));
     expect(classes.has("sqli")).toBe(true);
     expect(classes.has("xss")).toBe(true);
@@ -22,9 +22,9 @@ describe("runBenchmark Suite", () => {
   it("runs the full benchmark suite and produces valid metrics", () => {
     const summary = runBenchmark();
 
-    expect(summary.totalSamples).toBe(18);
-    expect(summary.vulnerableCount).toBe(14);
-    expect(summary.safeControlCount).toBe(4);
+    expect(summary.totalSamples).toBe(25);
+    expect(summary.vulnerableCount).toBe(18);
+    expect(summary.safeControlCount).toBe(7);
 
     // Detection rate reflects honest SAST evaluation on open-source snippets
     expect(summary.detectionRate).toBeGreaterThanOrEqual(60);
@@ -38,7 +38,7 @@ describe("runBenchmark Suite", () => {
 
     // Runtime should be recorded
     expect(summary.totalRuntimeMs).toBeGreaterThan(0);
-    expect(summary.sampleResults).toHaveLength(18);
+    expect(summary.sampleResults).toHaveLength(25);
   });
 
   it("does not fire on the safe SQL control sample", () => {

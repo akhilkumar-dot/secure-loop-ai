@@ -50,6 +50,7 @@ import { updateMasteryAfterAnswer } from "@/lib/mastery-db";
 import { checkTierAllowed } from "@/lib/tier-progression";
 import {
   generateAiQuizQuestion,
+  normalizeVulnClass,
   type FindingQuizContext,
 } from "@/lib/ai-quiz-generator";
 
@@ -97,6 +98,8 @@ function FindingDetailPage() {
   const [attemptCount, setAttemptCount] = useState(0);
   const [loadingTier, setLoadingTier] = useState(false);
   const [quizIsAiGenerated, setQuizIsAiGenerated] = useState(false);
+  const [showQuizKeyInput, setShowQuizKeyInput] = useState(false);
+  const [aiQuizError, setAiQuizError] = useState<string | null>(null);
   const [explanationMode, setExplanationMode] = useState<"technical" | "simplified">("technical");
 
   // AI on-demand generation state
@@ -154,6 +157,7 @@ function FindingDetailPage() {
       .maybeSingle();
 
     // Check for existing decision (only if patch exists)
+    let hasDecision = false;
     if (patch?.id && user?.id) {
       const { data: decision } = await supabase
         .from("developer_decisions")
@@ -165,6 +169,7 @@ function FindingDetailPage() {
         .maybeSingle();
 
       if (decision) {
+        hasDecision = true;
         setDecisionDone(decision.action as "accept" | "reject");
         setExistingDecision(decision as DbDeveloperDecision);
         if (decision.rejection_note) {
@@ -195,12 +200,19 @@ function FindingDetailPage() {
       }
     }
 
-    setFinding({
+    const fullFinding: FullFinding = {
       ...(f as DbFinding),
       explanation: (explanation as DbExplanation) ?? undefined,
       patch: (patch as DbPatch) ?? undefined,
-    });
+    };
+    setFinding(fullFinding);
     setLoadingData(false);
+
+    // If finding was already decided, keep the education check visible
+    if (hasDecision || f.status === "accepted" || f.status === "rejected") {
+      setShowQuiz(true);
+      void loadQuizForFinding(f.vulnerability_class, fullFinding);
+    }
   }
 
   async function makeDecision(action: "accept" | "reject", override = false, customNote?: string) {
@@ -246,23 +258,31 @@ function FindingDetailPage() {
     setShowRejectDialog(false);
     setDeciding(false);
     setShowQuiz(true);
-    // Eagerly load the quiz question for this vuln class — pass finding for AI context
-    if (finding.vulnerability_class) {
-      await loadQuizForFinding(finding.vulnerability_class as VulnClass, finding);
-    }
+    // Always load a quiz — map null/unknown class gracefully
+    const rawClass = finding.vulnerability_class;
+    await loadQuizForFinding(rawClass, finding);
   }
 
-  async function loadQuizForFinding(vulnClass: VulnClass, currentFinding?: FullFinding | null) {
+  async function loadQuizForFinding(
+    rawVulnClass: string | null | undefined,
+    currentFinding?: FullFinding | null,
+    forceAi = false,
+  ) {
     if (!user) return;
     setLoadingTier(true);
-    setQuizIsAiGenerated(false);
+    setQuizSubmitted(false);
+    setQuizAnswer(null);
+    setAiQuizError(null);
+
+    // Normalize for DB queries and static bank lookups
+    const effectiveClass = normalizeVulnClass(rawVulnClass);
 
     // Fetch user's attempt history for this vuln class (server-side tier check)
     const { data: pastAttempts } = await supabase
       .from("education_checks")
       .select("tier, correct, answered_at")
       .eq("user_id", user.id)
-      .eq("vuln_class", vulnClass)
+      .eq("vuln_class", effectiveClass)
       .order("answered_at", { ascending: true });
 
     const attempts = (pastAttempts ?? []) as Array<{ tier: Tier; correct: boolean }>;
@@ -285,8 +305,10 @@ function FindingDetailPage() {
     // ── Try AI-generated question first ────────────────────────────────────
     const apiKey =
       (typeof window !== "undefined"
-        ? sessionStorage.getItem("sl_ai_key") ?? ""
+        ? sessionStorage.getItem("sl_ai_key") || sessionStorage.getItem("sl_ai_backup_key") || ""
         : "") || regenKey;
+    const backupKey =
+      (typeof window !== "undefined" ? sessionStorage.getItem("sl_ai_backup_key") : null) || null;
 
     const f = currentFinding ?? finding;
 
@@ -299,7 +321,8 @@ function FindingDetailPage() {
           : null;
 
         const ctx: FindingQuizContext = {
-          vulnClass,
+          // Pass the real class (e.g. "other" or specific rule category) so the AI prompt is accurate
+          vulnClass: rawVulnClass || effectiveClass,
           tier: bestTier,
           cwe: f.cwe ?? null,
           filePath: f.file_path ?? null,
@@ -309,20 +332,63 @@ function FindingDetailPage() {
           severity: f.severity ?? null,
         };
 
-        const aiQuestion = await generateAiQuizQuestion(ctx, apiKey);
+        const aiQuestion = await generateAiQuizQuestion(ctx, apiKey, backupKey);
         setActiveQuestion(aiQuestion);
         setQuizIsAiGenerated(true);
         setLoadingTier(false);
         return;
-      } catch (err) {
-        // AI generation failed — fall back to static bank silently
-        console.warn("[quiz] AI question generation failed, falling back to static bank:", err);
+      } catch (err: any) {
+        console.warn("[quiz] AI question generation failed:", err?.message);
+        setAiQuizError(err?.message || "Failed to generate AI question.");
+        if (forceAi) {
+          // If the user explicitly clicked "generate with AI", don't silently swallow
+          setLoadingTier(false);
+        }
       }
+    } else if (forceAi && !apiKey) {
+      setShowQuizKeyInput(true);
+      setLoadingTier(false);
+      return;
     }
 
-    // ── Fallback: static quiz bank ──────────────────────────────────────────
-    const question = pickQuestion(vulnClass, bestTier, count);
-    setActiveQuestion(question);
+    // ── Fallback 1: static quiz bank (mapped class) ─────────────────────────
+    const question = pickQuestion(effectiveClass, bestTier, count);
+    if (question) {
+      setActiveQuestion(question);
+      setQuizIsAiGenerated(false);
+      setLoadingTier(false);
+      return;
+    }
+
+    // ── Fallback 2: universal question (guaranteed never null) ──────────────
+    setActiveQuestion({
+      id: "fallback_universal_easy_1",
+      vulnClass: effectiveClass,
+      tier: "easy",
+      question:
+        "Which of the following is the most effective general approach to prevent injection vulnerabilities (SQL injection, XSS, command injection)?",
+      options: [
+        {
+          text: "Validate and parameterise all user-supplied input at the data layer boundary",
+          misconceptionId: null,
+        },
+        {
+          text: "Remove special characters from user input using a blocklist regex",
+          misconceptionId: "trusts_blocklist_sanitisation",
+        },
+        {
+          text: "Encode user input only when displaying it in HTML output",
+          misconceptionId: "output_only_encoding",
+        },
+        {
+          text: "Use HTTPS so that user data is encrypted in transit",
+          misconceptionId: "confuses_transport_with_injection",
+        },
+      ],
+      correctIndex: 0,
+      source: "OWASP Top 10 A03:2021 – Injection https://owasp.org/Top10/A03_2021-Injection/",
+    });
+    setQuizIsAiGenerated(false);
     setLoadingTier(false);
   }
 
@@ -627,7 +693,7 @@ function FindingDetailPage() {
   async function submitQuizAnswer() {
     if (quizAnswer === null || !finding || !user || !activeQuestion) return;
 
-    const vulnClass = finding.vulnerability_class as VulnClass;
+    const vulnClass = normalizeVulnClass(finding.vulnerability_class);
     const isCorrect = quizAnswer === activeQuestion.correctIndex;
     const misconceptionId = getMisconceptionId(activeQuestion, quizAnswer);
 
@@ -647,7 +713,7 @@ function FindingDetailPage() {
       vuln_class: vulnClass,
       tier: activeTier,
       question: activeQuestion.question,
-      options: activeQuestion.options.map((o) => o.text),
+      options: activeQuestion.options.map((o) => (typeof o === "string" ? o : o.text)),
       correct_index: activeQuestion.correctIndex,
       user_answer: quizAnswer,
       correct: isCorrect,
@@ -1511,31 +1577,105 @@ function FindingDetailPage() {
                 </span>
               </div>
             ) : quiz ? (
-              <TerminalWindow title={`quiz — ${finding.vulnerability_class} · ${activeTier}`}>
-                {/* Tier badge + AI badge */}
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  <span className="font-mono text-[10px] text-subtle">// tier:</span>
-                  <span
-                    className={`font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      activeTier === "hard"
-                        ? "border-danger/40 text-danger"
-                        : activeTier === "medium"
-                          ? "border-warning/40 text-warning"
-                          : "border-subtle/40 text-subtle"
-                    }`}
-                  >
-                    {activeTier}
-                  </span>
-                  {activeTier !== "easy" && (
-                    <span className="font-mono text-[10px] text-success">unlocked</span>
-                  )}
-                  {quizIsAiGenerated && (
-                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-full">
-                      <Sparkles className="size-2.5" />
-                      AI · based on this finding
+              <TerminalWindow
+                title={`quiz — ${finding.vulnerability_class || "security"} · ${activeTier}`}
+              >
+                {/* Header controls & badges */}
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-[10px] text-subtle">// tier:</span>
+                    <span
+                      className={`font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                        activeTier === "hard"
+                          ? "border-danger/40 text-danger"
+                          : activeTier === "medium"
+                            ? "border-warning/40 text-warning"
+                            : "border-subtle/40 text-subtle"
+                      }`}
+                    >
+                      {activeTier}
                     </span>
-                  )}
+                    {activeTier !== "easy" && (
+                      <span className="font-mono text-[10px] text-success">unlocked</span>
+                    )}
+                    {quizIsAiGenerated ? (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-full">
+                        <Sparkles className="size-2.5" />
+                        AI · grounded in this finding
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-subtle border border-border px-2 py-0.5 rounded-full">
+                        static bank
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      const key =
+                        (typeof window !== "undefined"
+                          ? sessionStorage.getItem("sl_ai_key") ||
+                            sessionStorage.getItem("sl_ai_backup_key")
+                          : "") || regenKey;
+                      if (!key) {
+                        setShowQuizKeyInput(true);
+                      } else {
+                        void loadQuizForFinding(finding.vulnerability_class, finding, true);
+                      }
+                    }}
+                    disabled={loadingTier}
+                    className="pill-hover inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-accent hover:text-foreground"
+                    title="Generate a custom quiz question grounded in this specific code finding using AI"
+                  >
+                    <Sparkles className="size-3 text-accent" />
+                    {quizIsAiGenerated ? "regenerate with AI" : "generate with AI"}
+                  </button>
                 </div>
+
+                {/* Optional key input if user wants AI generation and no key is configured */}
+                {showQuizKeyInput && (
+                  <div className="mb-4 rounded-lg border border-accent/30 bg-accent/5 p-3 space-y-2">
+                    <label className="block font-mono text-[10px] uppercase tracking-wider text-accent font-semibold">
+                      Enter AI API key to generate finding-specific question
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={regenKey}
+                        onChange={(e) => {
+                          setRegenKey(e.target.value);
+                          if (typeof window !== "undefined") {
+                            sessionStorage.setItem("sl_ai_key", e.target.value);
+                          }
+                        }}
+                        placeholder="AQ.…, AIzaSy…, gsk_…, sk-or-…, or sk-…"
+                        className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          setShowQuizKeyInput(false);
+                          void loadQuizForFinding(finding.vulnerability_class, finding, true);
+                        }}
+                        className="pill-hover rounded-lg border border-accent/40 bg-accent/20 px-3 py-1.5 font-mono text-xs text-accent cursor-pointer"
+                      >
+                        generate
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {aiQuizError && (
+                  <div className="mb-3 rounded border border-warning/30 bg-warning/5 px-3 py-1.5 font-mono text-[11px] text-warning flex items-center justify-between">
+                    <span>{aiQuizError} (showing fallback question)</span>
+                    <button
+                      onClick={() => setShowQuizKeyInput(true)}
+                      className="underline hover:text-foreground cursor-pointer text-[10px]"
+                    >
+                      check API key
+                    </button>
+                  </div>
+                )}
+
                 <div className="text-foreground mb-4">{quiz.question}</div>
                 <div className="space-y-2">
                   {quiz.options.map((opt, i) => (
@@ -1609,7 +1749,7 @@ function FindingDetailPage() {
                     <div className="flex items-center gap-4 mt-2">
                       <Link
                         to="/learn"
-                        search={{ class: finding.vulnerability_class as VulnClass }}
+                        search={{ class: normalizeVulnClass(finding.vulnerability_class) }}
                         className="text-accent hover:underline font-mono text-[11px]"
                       >
                         practice more in learning hub →
@@ -1619,8 +1759,17 @@ function FindingDetailPage() {
                 )}
               </TerminalWindow>
             ) : (
-              <div className="rounded-lg border border-border bg-elevated p-6 font-mono text-xs text-subtle">
-                no quiz available for this vulnerability class
+              <div className="rounded-lg border border-border bg-elevated p-6 font-mono text-xs text-subtle flex items-center justify-between">
+                <span>Education check question is ready.</span>
+                <button
+                  onClick={() =>
+                    void loadQuizForFinding(finding.vulnerability_class, finding, true)
+                  }
+                  className="pill-hover inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-xs text-accent"
+                >
+                  <Sparkles className="size-3 text-accent" />
+                  Generate AI Question
+                </button>
               </div>
             )}
           </div>
