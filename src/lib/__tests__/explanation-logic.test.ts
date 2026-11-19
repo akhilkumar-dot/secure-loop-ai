@@ -373,8 +373,15 @@ describe("Per-Stage Schemas & Startup Equivalence Assertions", () => {
     expect(patchSchema).not.toEqual(valSchema);
 
     expect(patchSchema).toEqual(GROQ_PATCH_JSON_SCHEMA);
-    expect(patchSchema?.["required"]).toEqual(["diff", "explanation"]);
-    expect((patchSchema?.["properties"] as any).diff).toBeDefined();
+    expect(patchSchema?.["required"]).toEqual([
+      "start_line",
+      "end_line",
+      "original_code",
+      "replacement_code",
+      "explanation",
+    ]);
+    expect((patchSchema?.["properties"] as any).start_line).toBeDefined();
+    expect((patchSchema?.["properties"] as any).diff).toBeUndefined();
     expect((patchSchema?.["properties"] as any).what_it_is).toBeUndefined();
   });
 
@@ -483,12 +490,15 @@ describe("Same-Provider Backup Key Detection", () => {
 describe("Failed Generation Recovery on json_validate_failed", () => {
   it("extracts and validates patch payload from failed_generation JSON", () => {
     const failedGenStr =
-      '{"diff": "@@ -34 +34 @@\\n-eval(x)\\n+safe(x)", "explanation": "replaces eval with safe"}';
+      '{"start_line": 34, "end_line": 34, "original_code": "eval(x)", "replacement_code": "safe(x)", "explanation": "replaces eval with safe"}';
     const extracted = extractFirstJson(failedGenStr);
     const parsed = JSON.parse(extracted);
     const patch = PatchSchema.parse(parsed);
 
-    expect(patch.diff).toContain("@@ -34 +34 @@");
+    expect(patch.start_line).toBe(34);
+    expect(patch.end_line).toBe(34);
+    expect(patch.original_code).toBe("eval(x)");
+    expect(patch.replacement_code).toBe("safe(x)");
     expect(patch.explanation).toBe("replaces eval with safe");
   });
 });

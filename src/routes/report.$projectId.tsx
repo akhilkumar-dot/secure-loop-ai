@@ -9,6 +9,7 @@ import {
   Brain,
   Clock,
   AlertTriangle,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -395,6 +396,32 @@ function ReportPage() {
                             {f.patch.validation_verdict?.toUpperCase() || "PENDING"}
                           </span>
                         </div>
+
+                        {/* Visible Warning if developer accepted despite rejected validation */}
+                        {f.status === "accepted" && f.patch.validation_verdict === "rejected" && (
+                          <div className="rounded border border-warning/40 bg-warning/10 p-2.5 font-mono text-xs text-warning flex items-start gap-2">
+                            <AlertTriangle className="size-4 shrink-0 text-warning mt-0.5" />
+                            <span>
+                              <strong>Warning:</strong> Developer accepted this patch via manual
+                              override despite automatic validation rejection (
+                              {f.patch.validation_failed_check || "validation failed"}).
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Behavior Warning for XSS innerHTML -> textContent */}
+                        {(f.vulnerability_class === "xss" || f.cwe?.includes("79")) &&
+                          (f.patch.diff?.includes("textContent") ||
+                            (f.patch as any).behavior_note) && (
+                            <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2.5 font-mono text-xs text-amber-300 flex items-start gap-2">
+                              <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
+                              <span>
+                                <strong>Behavior Warning:</strong> This changes behavior if the
+                                value is meant to contain HTML.
+                              </span>
+                            </div>
+                          )}
+
                         {diffLines.length > 0 && (
                           <div className="rounded-lg border border-border bg-background p-3 overflow-x-auto print:border-gray-200">
                             <DiffView lines={diffLines} />

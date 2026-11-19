@@ -17,6 +17,8 @@ import {
   Sparkles,
   Menu,
   X,
+  FileArchive,
+  UploadCloud,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -26,6 +28,8 @@ import {
   type DbRecurringMisconception,
 } from "@/lib/supabase";
 import { fetchUserGitHubRepos, type GitHubRepoItem } from "@/lib/github";
+import { extractZipFiles, type ZipExtractResult } from "@/lib/zip";
+import { saveProjectZipFiles, deleteProjectZipFiles } from "@/lib/zip-storage";
 import { Logo, ScoreBadge } from "@/components/chrome";
 import { getRecurringMisconceptions } from "@/lib/misconception";
 import { getAllMasteryProfiles, type MasteryProfileRow } from "@/lib/mastery-db";
@@ -67,6 +71,13 @@ function DashboardPage() {
   const [userRepos, setUserRepos] = useState<GitHubRepoItem[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [activeGithubToken, setActiveGithubToken] = useState<string | null>(null);
+
+  // ZIP project upload state
+  const [sourceTypeTab, setSourceTypeTab] = useState<"git" | "zip">("git");
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipExtracting, setZipExtracting] = useState(false);
+  const [zipResult, setZipResult] = useState<ZipExtractResult | null>(null);
+  const [zipError, setZipError] = useState<string | null>(null);
 
   // Misconception diagnosis state
   const [recurringMisconceptions, setRecurringMisconceptions] = useState<
@@ -181,6 +192,41 @@ function DashboardPage() {
     setLoadingProjects(false);
   }
 
+  async function handleZipFileChange(file: File) {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setZipError("Please select a valid .zip archive file.");
+      setZipResult(null);
+      return;
+    }
+    setZipFile(file);
+    setZipError(null);
+    setZipExtracting(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const res = await extractZipFiles(buffer, file.name);
+      if (res.error) {
+        setZipError(res.error);
+        setZipResult(null);
+      } else if (res.files.length === 0) {
+        setZipError(
+          "No supported source code files found in this ZIP archive (.js, .ts, .py, etc.).",
+        );
+        setZipResult(null);
+      } else {
+        setZipResult(res);
+        if (!newProjectName.trim()) {
+          const defaultName = file.name.replace(/\.zip$/i, "").replace(/[^a-zA-Z0-9._-]/g, "-");
+          setNewProjectName(defaultName);
+        }
+      }
+    } catch (err: any) {
+      setZipError(err?.message || "Failed to parse ZIP archive.");
+      setZipResult(null);
+    } finally {
+      setZipExtracting(false);
+    }
+  }
+
   async function createProject() {
     if (!user) return;
     setCreateError(null);
@@ -188,6 +234,45 @@ function DashboardPage() {
       setCreateError("Project name is required.");
       return;
     }
+
+    if (sourceTypeTab === "zip") {
+      if (!zipResult || zipResult.files.length === 0) {
+        setCreateError("Please select a valid ZIP archive containing source files.");
+        return;
+      }
+      setCreating(true);
+
+      const archiveName = zipFile?.name || "project.zip";
+      const { data, error } = await supabase
+        .from("projects")
+        .insert({
+          owner_id: user.id,
+          name: newProjectName.trim(),
+          source_type: "zip",
+          repo_url: `archive://${archiveName}`,
+          default_branch: "main",
+        })
+        .select()
+        .single();
+
+      if (error || !data) {
+        setCreateError(error?.message || "Failed to create project");
+        setCreating(false);
+        return;
+      }
+
+      // Store files in IndexedDB for the scan route
+      await saveProjectZipFiles(data.id, archiveName, zipResult.files);
+
+      setCreating(false);
+      setShowNewProject(false);
+      setNewProjectName("");
+      setZipFile(null);
+      setZipResult(null);
+      navigate({ to: "/scan/$projectId", params: { projectId: data.id } });
+      return;
+    }
+
     if (!newRepoUrl.trim()) {
       setCreateError("GitHub repository URL is required.");
       return;
@@ -234,6 +319,8 @@ function DashboardPage() {
     await supabase.from("findings").delete().eq("project_id", id);
     await supabase.from("scan_runs").delete().eq("project_id", id);
     await supabase.from("security_scores").delete().eq("project_id", id);
+    await supabase.from("projects").delete().eq("id", id);
+    await deleteProjectZipFiles(id);
     await supabase.from("projects").delete().eq("id", id);
     setDeletingId(null);
     setProjects((prev) => prev.filter((p) => p.id !== id));
@@ -620,66 +707,179 @@ function DashboardPage() {
         {showNewProject && (
           <div className="mt-6 rounded-lg border border-border bg-elevated p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="font-mono text-xs font-semibold">connect a github repository</p>
-              {activeGithubToken && (
+              <p className="font-mono text-xs font-semibold">create a new security scan project</p>
+              {activeGithubToken && sourceTypeTab === "git" && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 font-mono text-[10px] text-success">
                   <Github className="size-3" /> GitHub Authenticated
                 </span>
               )}
             </div>
 
-            {userRepos.length > 0 && (
-              <div className="mb-4 rounded-lg border border-border bg-background p-3">
-                <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  Import from your GitHub repositories (1-click)
-                </label>
-                <select
-                  onChange={(e) => {
-                    const selected = userRepos.find((r) => r.clone_url === e.target.value);
-                    if (selected) {
-                      setNewProjectName(selected.name);
-                      setNewRepoUrl(selected.html_url);
-                    }
-                  }}
-                  className="w-full rounded-lg border border-border bg-elevated px-3 py-2 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
-                >
-                  <option value="">-- Select a repository --</option>
-                  {userRepos.map((r) => (
-                    <option key={r.id} value={r.clone_url}>
-                      {r.full_name} {r.private ? "(private)" : ""}{" "}
-                      {r.language ? `• ${r.language}` : ""}
-                    </option>
-                  ))}
-                </select>
+            {/* Source Type Selection Tabs */}
+            <div className="flex items-center border-b border-border mb-4 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceTypeTab("git");
+                  setCreateError(null);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 font-mono text-xs cursor-pointer border-b-2 transition-colors ${
+                  sourceTypeTab === "git"
+                    ? "border-accent text-foreground font-semibold"
+                    : "border-transparent text-subtle hover:text-foreground"
+                }`}
+              >
+                <Github className="size-3.5" />
+                GitHub Repository
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceTypeTab("zip");
+                  setCreateError(null);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 font-mono text-xs cursor-pointer border-b-2 transition-colors ${
+                  sourceTypeTab === "zip"
+                    ? "border-accent text-foreground font-semibold"
+                    : "border-transparent text-subtle hover:text-foreground"
+                }`}
+              >
+                <FileArchive className="size-3.5 text-accent" />
+                Upload ZIP Archive
+              </button>
+            </div>
+
+            {sourceTypeTab === "git" ? (
+              <>
+                {userRepos.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-border bg-background p-3">
+                    <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      Import from your GitHub repositories (1-click)
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const selected = userRepos.find((r) => r.clone_url === e.target.value);
+                        if (selected) {
+                          setNewProjectName(selected.name);
+                          setNewRepoUrl(selected.html_url);
+                        }
+                      }}
+                      className="w-full rounded-lg border border-border bg-elevated px-3 py-2 font-mono text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                    >
+                      <option value="">-- Select a repository --</option>
+                      {userRepos.map((r) => (
+                        <option key={r.id} value={r.clone_url}>
+                          {r.full_name} {r.private ? "(private)" : ""}{" "}
+                          {r.language ? `• ${r.language}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      project name
+                    </label>
+                    <input
+                      type="text"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      placeholder="my-api"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      github repo url
+                    </label>
+                    <input
+                      type="text"
+                      value={newRepoUrl}
+                      onChange={(e) => setNewRepoUrl(e.target.value)}
+                      placeholder="https://github.com/owner/repo"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                    project name
+                  </label>
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    placeholder="e.g. payment-service"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
+                    upload project zip file
+                  </label>
+                  <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) handleZipFileChange(f);
+                    }}
+                    onClick={() => document.getElementById("dashboard-zip-input")?.click()}
+                    className="border-2 border-dashed border-border/80 hover:border-accent/60 transition-colors rounded-lg p-6 text-center bg-background/50 cursor-pointer"
+                  >
+                    <input
+                      id="dashboard-zip-input"
+                      type="file"
+                      accept=".zip,application/zip"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleZipFileChange(f);
+                      }}
+                    />
+                    <FileArchive className="mx-auto size-8 text-accent/80 mb-2" />
+                    {zipExtracting ? (
+                      <p className="font-mono text-xs text-subtle animate-pulse">
+                        Analyzing and extracting ZIP archive…
+                      </p>
+                    ) : zipResult ? (
+                      <div className="space-y-1">
+                        <p className="font-mono text-xs font-semibold text-foreground flex items-center justify-center gap-1.5">
+                          <ShieldCheck className="size-4 text-success" />
+                          {zipFile?.name} ({(zipFile!.size / (1024 * 1024)).toFixed(2)} MB)
+                        </p>
+                        <p className="font-mono text-[11px] text-success">
+                          ✓ {zipResult.files.length} scannable source files ready
+                          {zipResult.skippedFiles > 0 &&
+                            ` (${zipResult.skippedFiles} non-code items ignored)`}
+                        </p>
+                        <p className="font-mono text-[10px] text-subtle">
+                          Click or drop another file to replace
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="font-mono text-xs text-foreground font-medium">
+                          Drag & drop your project <strong className="text-accent">.zip</strong>{" "}
+                          archive here, or <span className="text-accent underline">browse</span>
+                        </p>
+                        <p className="font-mono text-[11px] text-subtle/70 mt-1">
+                          Supports Node.js, TypeScript, Python, Java, Go, PHP, HTML/EJS files (up to
+                          100MB)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {zipError && <p className="mt-2 font-mono text-[11px] text-danger">{zipError}</p>}
+                </div>
               </div>
             )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  project name
-                </label>
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="my-api"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-subtle">
-                  github repo url
-                </label>
-                <input
-                  type="text"
-                  value={newRepoUrl}
-                  onChange={(e) => setNewRepoUrl(e.target.value)}
-                  placeholder="https://github.com/owner/repo"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-subtle/50 focus:border-accent/50 focus:outline-none"
-                />
-              </div>
-            </div>
             {createError && <p className="mt-2 font-mono text-[11px] text-danger">{createError}</p>}
             <div className="mt-4 flex gap-2">
               <button
@@ -748,7 +948,15 @@ function DashboardPage() {
                       >
                         <td className="px-5 py-4">
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-semibold text-foreground">{p.name}</span>
+                            <div className="flex items-center gap-1.5">
+                              {p.source_type === "zip" && (
+                                <span className="inline-flex items-center gap-1 rounded bg-accent/10 border border-accent/30 px-1.5 py-0.5 font-mono text-[9px] text-accent font-medium">
+                                  <FileArchive className="size-2.5" />
+                                  ZIP
+                                </span>
+                              )}
+                              <span className="font-semibold text-foreground">{p.name}</span>
+                            </div>
                             {p.repo_url && (
                               <span className="text-[10px] text-subtle/60">{p.repo_url}</span>
                             )}
@@ -822,7 +1030,15 @@ function DashboardPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground truncate">{p.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          {p.source_type === "zip" && (
+                            <span className="inline-flex items-center gap-1 rounded bg-accent/10 border border-accent/30 px-1.5 py-0.5 font-mono text-[9px] text-accent font-medium">
+                              <FileArchive className="size-2.5" />
+                              ZIP
+                            </span>
+                          )}
+                          <p className="font-semibold text-foreground truncate">{p.name}</p>
+                        </div>
                         {p.repo_url && (
                           <p className="font-mono text-[10px] text-subtle/70 truncate mt-0.5">
                             {p.repo_url}

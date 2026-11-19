@@ -578,7 +578,8 @@ module.exports = connection;`,
     isVulnerable: true,
     source: "OWASP Benchmark / CWE-22",
     license: "CC-BY-SA-4.0",
-    description: "path.join called with unsanitised user input allows directory traversal (../../etc/passwd).",
+    description:
+      "path.join called with unsanitised user input allows directory traversal (../../etc/passwd).",
     code: `const path = require('path');
 const fs   = require('fs');
 
@@ -607,7 +608,8 @@ module.exports = function serveFile(req, res) {
     isVulnerable: false,
     source: "OWASP Benchmark / CWE-22",
     license: "CC-BY-SA-4.0",
-    description: "basename() strips directory components and resolve() anchors to the public root — no traversal possible.",
+    description:
+      "basename() strips directory components and resolve() anchors to the public root — no traversal possible.",
     code: `const path = require('path');
 const fs   = require('fs');
 
@@ -631,7 +633,8 @@ module.exports = function serveFile(req, res) {
     isVulnerable: false,
     source: "OWASP Benchmark / CWE-78",
     license: "CC-BY-SA-4.0",
-    description: "execFile with a static binary path and an array of arguments prevents shell injection.",
+    description:
+      "execFile with a static binary path and an array of arguments prevents shell injection.",
     code: `const { execFile } = require('child_process');
 
 module.exports = function runGitLog(branch, callback) {
@@ -650,7 +653,8 @@ module.exports = function runGitLog(branch, callback) {
     isVulnerable: false,
     source: "OWASP Benchmark / CWE-798",
     license: "CC-BY-SA-4.0",
-    description: "Password is loaded from the environment at runtime — no hardcoded secret present.",
+    description:
+      "Password is loaded from the environment at runtime — no hardcoded secret present.",
     code: `const mysql = require('mysql2');
 
 const connection = mysql.createConnection({
@@ -672,7 +676,8 @@ module.exports = connection;`,
     isVulnerable: true,
     source: "OWASP Benchmark / CWE-89",
     license: "CC-BY-SA-4.0",
-    description: "Spring JdbcTemplate query built by string concatenation allows SQL injection via username parameter.",
+    description:
+      "Spring JdbcTemplate query built by string concatenation allows SQL injection via username parameter.",
     code: `import org.springframework.jdbc.core.JdbcTemplate;
 
 public class UserRepository {
@@ -700,7 +705,8 @@ public class UserRepository {
     isVulnerable: true,
     source: "OWASP Benchmark / CWE-78",
     license: "CC-BY-SA-4.0",
-    description: "ProcessBuilder invokes 'sh -c' with unsanitised user input, enabling shell metacharacter injection.",
+    description:
+      "ProcessBuilder invokes 'sh -c' with unsanitised user input, enabling shell metacharacter injection.",
     code: `import java.io.*;
 
 public class NetworkUtil {
@@ -725,7 +731,8 @@ public class NetworkUtil {
     isVulnerable: true,
     source: "OWASP Benchmark / CWE-79",
     license: "CC-BY-SA-4.0",
-    description: "Servlet writes unsanitised request parameter directly into the HTML response body.",
+    description:
+      "Servlet writes unsanitised request parameter directly into the HTML response body.",
     code: `import javax.servlet.http.*;
 import java.io.*;
 

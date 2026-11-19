@@ -1,6 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Play, AlertTriangle, RefreshCw, ShieldAlert, Check } from "lucide-react";
+import {
+  ArrowLeft,
+  Play,
+  AlertTriangle,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  Check,
+  FileArchive,
+  UploadCloud,
+} from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { Logo, TerminalWindow } from "@/components/chrome";
@@ -11,7 +21,9 @@ import {
   generatePatch,
   validatePatch,
 } from "@/lib/ai-pipeline";
-import { fetchRepoFiles, buildFileMap } from "@/lib/github";
+import { fetchRepoFiles, buildFileMap, type RepoFile } from "@/lib/github";
+import { extractZipFiles, computeSha1 } from "@/lib/zip";
+import { getProjectZipFiles, saveProjectZipFiles } from "@/lib/zip-storage";
 import { runSast } from "@/lib/sast";
 import { recomputeScore } from "@/lib/score";
 import type { SastFinding } from "@/lib/sast";
@@ -96,8 +108,14 @@ function ScanPage() {
   const { user, loading } = useAuth();
   const [project, setProject] = useState<{
     name: string;
-    repo_url?: string;
+    repo_url?: string | null;
+    source_type?: string | null;
   } | null>(null);
+  const [zipProjectFiles, setZipProjectFiles] = useState<RepoFile[] | null>(null);
+  const [zipArchiveName, setZipArchiveName] = useState<string | null>(null);
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const [zipUploadError, setZipUploadError] = useState<string | null>(null);
+  const [isReplacingZip, setIsReplacingZip] = useState(false);
   const [scanRunId, setScanRunId] = useState<string | null>(null);
   const [stage, setStage] = useState<ScanStage>("queued");
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -163,10 +181,55 @@ function ScanPage() {
   async function fetchProject() {
     const { data } = await supabase
       .from("projects")
-      .select("name, repo_url")
+      .select("name, repo_url, source_type")
       .eq("id", projectId)
       .single();
-    if (data) setProject(data);
+    if (data) {
+      setProject(data);
+      if (data.source_type === "zip" || data.repo_url?.startsWith("archive://")) {
+        const storedZip = await getProjectZipFiles(projectId);
+        if (storedZip) {
+          setZipProjectFiles(storedZip.files);
+          setZipArchiveName(storedZip.archiveName);
+        }
+      }
+    }
+  }
+
+  async function handleZipFileUpload(file: File) {
+    setUploadingZip(true);
+    setZipUploadError(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const extracted = await extractZipFiles(buffer);
+      if (extracted.files.length === 0) {
+        throw new Error("No supported source files (.js, .ts, .py, .go, etc.) found in archive.");
+      }
+      const repoFiles: RepoFile[] = extracted.files.map((f) => ({
+        path: f.path,
+        content: f.content,
+        sha: f.sha,
+      }));
+      await saveProjectZipFiles(projectId, file.name, repoFiles);
+      setZipProjectFiles(repoFiles);
+      setZipArchiveName(file.name);
+      setIsReplacingZip(false);
+
+      if (project && project.source_type !== "zip") {
+        await supabase
+          .from("projects")
+          .update({ source_type: "zip", repo_url: `archive://${file.name}` })
+          .eq("id", projectId);
+        setProject((prev) =>
+          prev ? { ...prev, source_type: "zip", repo_url: `archive://${file.name}` } : prev,
+        );
+      }
+    } catch (err: any) {
+      console.error("[scan] Failed to extract ZIP:", err);
+      setZipUploadError(err?.message || "Failed to process ZIP archive.");
+    } finally {
+      setUploadingZip(false);
+    }
   }
 
   async function fetchSettings() {
@@ -290,8 +353,22 @@ function ScanPage() {
       }
     }
 
-    if (!project.repo_url) {
-      setError("This project has no GitHub URL. Please add one in the dashboard.");
+    const isZipProject =
+      project.source_type === "zip" ||
+      project.repo_url?.startsWith("archive://") ||
+      Boolean(zipProjectFiles && zipProjectFiles.length > 0);
+
+    if (isZipProject) {
+      if (!zipProjectFiles || zipProjectFiles.length === 0) {
+        setError(
+          "ZIP archive source files are not found in browser storage. Please upload the .zip file before scanning.",
+        );
+        return;
+      }
+    } else if (!project.repo_url) {
+      setError(
+        "This project has no repository URL or archive. Please upload a ZIP archive or add a GitHub URL.",
+      );
       return;
     }
 
@@ -358,48 +435,89 @@ function ScanPage() {
     const detected = detectProvider(effectiveKey);
     const providerLabel = PROVIDER_INFOS[detected]?.name ?? "AI";
 
-    addLog(`$ secureloop scan ${project!.repo_url}`);
-    addLog(
-      `  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`,
-      "dim",
-    );
-    await delay(300);
+    const isZipProject =
+      project?.source_type === "zip" ||
+      project?.repo_url?.startsWith("archive://") ||
+      Boolean(zipProjectFiles && zipProjectFiles.length > 0);
 
-    // Fetch repo files
-    setStage("cloning");
-    await updateScanStatus(scanRun.id, "scanning");
-    addLog("▸ fetching repository files via GitHub API…", "warn");
+    let files: RepoFile[] = [];
+    let commitSha: string = "";
 
-    const {
-      files,
-      error: fetchErr,
-      repoName,
-      commitSha,
-    } = await fetchRepoFiles({
-      data: {
-        repoUrl: project?.repo_url ?? "",
-        ...(githubToken ? { token: githubToken } : {}),
-        runId: scanRun.id,
-      },
-    });
+    if (isZipProject) {
+      addLog(`$ secureloop scan archive://${zipArchiveName || "project.zip"}`);
+      addLog(
+        `  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`,
+        "dim",
+      );
+      await delay(300);
 
-    if (fetchErr) {
-      addLog(`✖ ${fetchErr}`, "err");
-      await updateScanStatus(scanRun.id, "failed");
-      setError(fetchErr);
-      setScanning(false);
-      return;
-    }
+      setStage("cloning");
+      await updateScanStatus(scanRun.id, "scanning");
+      addLog("▸ preparing local ZIP archive source files…", "warn");
 
-    if (commitSha) {
+      if (!zipProjectFiles || zipProjectFiles.length === 0) {
+        const fetchErr = "No files found in ZIP archive. Please upload the .zip file first.";
+        addLog(`✖ ${fetchErr}`, "err");
+        await updateScanStatus(scanRun.id, "failed");
+        setError(fetchErr);
+        setScanning(false);
+        return;
+      }
+
+      files = zipProjectFiles;
+      commitSha = `zip-${files.length}-${projectId.slice(0, 8)}`;
       await supabase.from("scan_runs").update({ commit_sha: commitSha }).eq("id", scanRun.id);
-    }
 
-    addLog(
-      `  ✓ repository cloned · commit ${commitSha?.substring(0, 7) ?? "unknown"} · ${files.length} source files cached`,
-      "ok",
-    );
-    await delay(200);
+      addLog(
+        `  ✓ ZIP archive loaded · ${zipArchiveName || "archive"} · ${files.length} source files ready`,
+        "ok",
+      );
+      await delay(200);
+    } else {
+      addLog(`$ secureloop scan ${project?.repo_url || "repository"}`);
+      addLog(
+        `  detector: sast-rules (deterministic) + ${providerLabel} (explain/patch/validate)`,
+        "dim",
+      );
+      await delay(300);
+
+      // Fetch repo files
+      setStage("cloning");
+      await updateScanStatus(scanRun.id, "scanning");
+      addLog("▸ fetching repository files via GitHub API…", "warn");
+
+      const {
+        files: ghFiles,
+        error: fetchErr,
+        commitSha: ghCommitSha,
+      } = await fetchRepoFiles({
+        data: {
+          repoUrl: project?.repo_url ?? "",
+          ...(githubToken ? { token: githubToken } : {}),
+          runId: scanRun.id,
+        },
+      });
+
+      if (fetchErr) {
+        addLog(`✖ ${fetchErr}`, "err");
+        await updateScanStatus(scanRun.id, "failed");
+        setError(fetchErr);
+        setScanning(false);
+        return;
+      }
+
+      files = ghFiles;
+      commitSha = ghCommitSha || "";
+      if (commitSha) {
+        await supabase.from("scan_runs").update({ commit_sha: commitSha }).eq("id", scanRun.id);
+      }
+
+      addLog(
+        `  ✓ repository cloned · commit ${commitSha?.substring(0, 7) ?? "unknown"} · ${files.length} source files cached`,
+        "ok",
+      );
+      await delay(200);
+    }
 
     const fileMap = buildFileMap(files);
 
@@ -792,6 +910,13 @@ function ScanPage() {
             model: providerLabel,
             generated_at: new Date().toISOString(),
             validation_new_issues: 0,
+            start_line: patch.start_line ?? null,
+            end_line: patch.end_line ?? null,
+            original_code: patch.original_code ?? null,
+            replacement_code: patch.replacement_code ?? null,
+            behavior_note: patch.behavior_note ?? null,
+            is_valid: patch.is_valid ?? true,
+            invalid_reason: patch.invalid_reason ?? null,
           })
           .select("id")
           .single();
@@ -1027,8 +1152,25 @@ function ScanPage() {
         <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">
           {project?.name ?? "…"}
         </h1>
-        {project?.repo_url && (
-          <p className="mt-1 font-mono text-xs text-subtle break-all">{project.repo_url}</p>
+        {project?.source_type === "zip" || project?.repo_url?.startsWith("archive://") ? (
+          <div className="mt-1 flex items-center gap-2 flex-wrap">
+            <span className="rounded bg-accent/20 px-2 py-0.5 font-mono text-[10px] text-accent font-semibold flex items-center gap-1">
+              <FileArchive className="size-3" />
+              ZIP ARCHIVE
+            </span>
+            <span className="font-mono text-xs text-subtle">
+              {zipArchiveName || project.repo_url?.replace("archive://", "") || "Uploaded archive"}
+            </span>
+            {zipProjectFiles && (
+              <span className="font-mono text-[10px] text-success">
+                ({zipProjectFiles.length} source files cached)
+              </span>
+            )}
+          </div>
+        ) : (
+          project?.repo_url && (
+            <p className="mt-1 font-mono text-xs text-subtle break-all">{project.repo_url}</p>
+          )
         )}
 
         {/* API keys inline config (only before scanning) */}
@@ -1042,6 +1184,98 @@ function ScanPage() {
                 keys stay in browser sessionStorage only
               </span>
             </div>
+
+            {/* ZIP Archive Management */}
+            {(project?.source_type === "zip" ||
+              isReplacingZip ||
+              (!project?.repo_url && !zipProjectFiles)) && (
+              <div className="rounded border border-border bg-background p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileArchive className="size-4 text-accent" />
+                    <span className="font-mono text-xs font-medium text-foreground">
+                      Project ZIP Archive
+                    </span>
+                  </div>
+                  {zipProjectFiles && !isReplacingZip && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReplacingZip(true)}
+                      className="font-mono text-[11px] text-accent hover:underline cursor-pointer"
+                    >
+                      replace .zip
+                    </button>
+                  )}
+                </div>
+
+                {zipProjectFiles && !isReplacingZip ? (
+                  <div className="flex items-center justify-between rounded bg-success/5 border border-success/30 px-3 py-2 font-mono text-xs text-success">
+                    <span className="flex items-center gap-1.5">
+                      <Check className="size-3.5" />
+                      {zipArchiveName || "archive.zip"} — {zipProjectFiles.length} source files
+                      ready
+                    </span>
+                  </div>
+                ) : (
+                  <div>
+                    <label
+                      htmlFor="scan-zip-input"
+                      className={`flex flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center cursor-pointer transition-colors ${
+                        uploadingZip
+                          ? "border-accent/50 bg-accent/5"
+                          : "border-border hover:border-accent/40 hover:bg-accent/5"
+                      }`}
+                    >
+                      <UploadCloud className="size-6 text-accent mb-2" />
+                      <p className="font-mono text-xs text-foreground font-medium">
+                        {uploadingZip
+                          ? "Extracting archive files…"
+                          : "Upload repository .zip archive"}
+                      </p>
+                      <p className="mt-1 font-mono text-[10px] text-subtle">
+                        Extracts code files directly in browser memory & IndexedDB
+                      </p>
+                      <input
+                        id="scan-zip-input"
+                        type="file"
+                        accept=".zip"
+                        disabled={uploadingZip}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleZipFileUpload(f);
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    {isReplacingZip && zipProjectFiles && (
+                      <button
+                        type="button"
+                        onClick={() => setIsReplacingZip(false)}
+                        className="mt-2 font-mono text-[10px] text-subtle underline hover:text-foreground cursor-pointer"
+                      >
+                        Cancel replacement
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {zipUploadError && (
+                  <p className="font-mono text-[11px] text-danger">{zipUploadError}</p>
+                )}
+              </div>
+            )}
+
+            {!isReplacingZip && project?.source_type !== "zip" && !zipProjectFiles && (
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsReplacingZip(true)}
+                  className="font-mono text-[10px] text-subtle hover:text-accent underline cursor-pointer"
+                >
+                  Or scan from a local .zip archive instead
+                </button>
+              </div>
+            )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               {/* Primary Key & Provider */}

@@ -24,7 +24,14 @@ import { detectProvider, type DetectedProvider } from "./ai-provider-detector";
 import { executeWithRateLimitAndFallback } from "./rate-limiter";
 import { getCachedAiOutput, saveCachedAiOutput } from "./ai-cache";
 import { generateRealExplanation, type ExplanationOutput } from "./explanation-service";
-import { applyUnifiedDiff, checkSyntax } from "./patch";
+import {
+  applyUnifiedDiff,
+  checkSyntax,
+  verifyOriginalCode,
+  generateUnifiedDiff,
+  hasLineNumberPrefixes,
+  isXssInnerHtmlToTextContent,
+} from "./patch";
 import { scanFile } from "./sast";
 import type { SastFinding } from "./sast";
 import {
@@ -194,6 +201,13 @@ export interface GeminiExplanation {
 export interface GeminiPatch {
   diff: string;
   explanation: string;
+  start_line?: number | undefined;
+  end_line?: number | undefined;
+  original_code?: string | undefined;
+  replacement_code?: string | undefined;
+  behavior_note?: string | undefined;
+  is_valid?: boolean | undefined;
+  invalid_reason?: string | undefined;
 }
 
 export interface GeminiValidation {
@@ -427,11 +441,26 @@ export async function generatePatch(
     }
   }
 
-  const codeContext = finding.code_lines?.map((l) => `${l.n}: ${l.code}`).join("\n") ?? "";
+  // Resolve effective file content
+  let effectiveFileContent = fullFileContent;
+  if (!effectiveFileContent && Array.isArray(finding.code_lines) && finding.code_lines.length > 0) {
+    const maxLine = Math.max(...finding.code_lines.map((l) => l.n));
+    const lines = new Array(maxLine).fill("");
+    for (const cl of finding.code_lines) {
+      lines[cl.n - 1] = cl.code;
+    }
+    effectiveFileContent = lines.join("\n");
+  }
+
+  const codeSnippet = finding.code_lines?.map((l) => l.code).join("\n") ?? "";
+  const lineRangeInfo =
+    finding.code_lines && finding.code_lines.length > 0
+      ? `lines ${finding.code_lines[0]!.n}–${finding.code_lines[finding.code_lines.length - 1]!.n}`
+      : `line ${finding.line_start ?? 1}`;
 
   let fileCtx = "";
-  if (fullFileContent) {
-    const { window, truncated } = fileWindow(fullFileContent, finding.line_start ?? 1);
+  if (effectiveFileContent) {
+    const { window, truncated } = fileWindow(effectiveFileContent, finding.line_start ?? 1);
     fileCtx = `\nFull file context${truncated ? ` (±${PATCH_CONTEXT_LINES} lines around finding)` : ""}:\n${safeCodeBlock(window, finding.file_path)}`;
   }
 
@@ -447,50 +476,185 @@ Generate an alternative, improved patch that addresses the developer's rejection
 Vulnerability:
 - Type: ${finding.vulnerability_class} (${finding.cwe})
 - File: ${finding.file_path}
-- Message: ${finding.raw_message}
-- Vulnerable code:
-${safeCodeBlock(codeContext, "vulnerable snippet")}
+- Vulnerable Location: ${lineRangeInfo}
+- Scanner Message: ${finding.raw_message}
+- Vulnerable snippet:
+${safeCodeBlock(codeSnippet, "vulnerable snippet")}
 ${fileCtx}${feedbackSection}
 
-Return ONLY valid JSON:
-{"diff":"unified diff — include @@ hunk header, exact line numbers matching the file above, - for removed, + for added","explanation":"1-2 sentences why this fixes the vulnerability"}
-
-The diff MUST target the exact lines shown in the file context above so it can be applied programmatically.`;
+CRITICAL INSTRUCTIONS:
+1. Return ONLY valid JSON with this exact schema:
+   {
+     "start_line": number (1-based starting line number in the source file),
+     "end_line": number (1-based ending line number in the source file, inclusive),
+     "original_code": "exact unmodified source code lines from lines start_line through end_line (WITHOUT line numbers)",
+     "replacement_code": "replacement source code to substitute in place of original_code (WITHOUT line numbers)",
+     "explanation": "1-2 sentences why this fixes the vulnerability"
+   }
+2. DO NOT include line numbers (such as "208:", "208 |", etc.) anywhere in original_code or replacement_code. Return plain code only.
+3. original_code MUST match the source file lines at start_line..end_line character for character (including exact indentation).
+4. Do NOT output unified diffs or diff headers. The unified diff will be constructed programmatically from your replacement_code.`;
 
   const { result, providerUsed } = await executeWithRateLimitAndFallback<GeminiPatch>({
     primaryKey: apiKeyOverride ?? "",
     backupKey: backupKeyOverride,
     execute: async (keyToUse) => {
       const provider = getProvider(keyToUse);
-      const res = await provider.generateChatCompletion(
-        [{ role: "user", content: prompt }],
-        "patch_generation",
-        {
-          responseFormatJson: true,
-          temperature: 0.2,
-          responseSchema: GROQ_PATCH_JSON_SCHEMA,
-          validateFn: (obj) => PatchSchema.parse(obj),
-        },
-      );
-      const parsed = await parseWithSchema(res.content, PatchSchema, async () => {
-        const r = await provider.generateChatCompletion(
-          [{ role: "user", content: prompt }],
+
+      const fetchCompletion = async (userPrompt: string) => {
+        const res = await provider.generateChatCompletion(
+          [{ role: "user", content: userPrompt }],
           "patch_generation",
           {
             responseFormatJson: true,
-            temperature: 0.2,
+            temperature: 0.1,
             responseSchema: GROQ_PATCH_JSON_SCHEMA,
             validateFn: (obj) => PatchSchema.parse(obj),
           },
         );
-        return r.content;
-      });
-      return { diff: parsed.diff, explanation: parsed.explanation };
+        return parseWithSchema(res.content, PatchSchema, async () => {
+          const r = await provider.generateChatCompletion(
+            [{ role: "user", content: userPrompt }],
+            "patch_generation",
+            {
+              responseFormatJson: true,
+              temperature: 0.1,
+              responseSchema: GROQ_PATCH_JSON_SCHEMA,
+              validateFn: (obj) => PatchSchema.parse(obj),
+            },
+          );
+          return r.content;
+        });
+      };
+
+      let parsed = await fetchCompletion(prompt);
+
+      // Check 1: Detect line-number prefixes in model output
+      if (
+        hasLineNumberPrefixes(parsed.original_code) ||
+        hasLineNumberPrefixes(parsed.replacement_code)
+      ) {
+        console.warn(
+          "[ai-pipeline] Malformed response: line-number prefixes detected. Retrying once...",
+        );
+        const retryPrompt = `${prompt}
+
+MALFORMED RESPONSE WARNING:
+Your previous output contained line-number prefixes (e.g. '208:' or '208 |') in the code fields.
+This is strictly rejected. Return PLAIN source code lines without any line numbers or prefixes.`;
+        parsed = await fetchCompletion(retryPrompt);
+      }
+
+      if (
+        hasLineNumberPrefixes(parsed.original_code) ||
+        hasLineNumberPrefixes(parsed.replacement_code)
+      ) {
+        const errReason =
+          "Malformed response: model output contained line-number prefixes (e.g. '208:') even after retry. Rejected without auto-correcting.";
+        return {
+          diff: `// Invalid patch: ${errReason}`,
+          explanation: parsed.explanation,
+          start_line: parsed.start_line,
+          end_line: parsed.end_line,
+          original_code: parsed.original_code,
+          replacement_code: parsed.replacement_code,
+          is_valid: false,
+          invalid_reason: errReason,
+        };
+      }
+
+      // Check 2: Verify original_code against real file lines start_line..end_line
+      if (effectiveFileContent) {
+        let verifyRes = verifyOriginalCode(
+          effectiveFileContent,
+          parsed.start_line,
+          parsed.end_line,
+          parsed.original_code,
+        );
+
+        if (!verifyRes.ok) {
+          console.warn(
+            `[ai-pipeline] Original code mismatch (${verifyRes.reason}). Retrying once with real lines...`,
+          );
+          const fileLines = effectiveFileContent.split("\n");
+          const expectedSlice =
+            verifyRes.expectedLines ??
+            fileLines.slice(Math.max(0, parsed.start_line - 1), parsed.end_line);
+
+          const retryPrompt = `${prompt}
+
+ORIGINAL CODE MISMATCH:
+The original_code you provided did not match lines ${parsed.start_line}..${parsed.end_line} of ${finding.file_path}.
+Details: ${verifyRes.reason}
+The EXACT lines at ${parsed.start_line}..${parsed.end_line} in the real file are:
+${expectedSlice.join("\n")}
+
+Please provide the exact lines above as original_code, the correct replacement_code, and correct start_line/end_line without line numbers.`;
+
+          parsed = await fetchCompletion(retryPrompt);
+          verifyRes = verifyOriginalCode(
+            effectiveFileContent,
+            parsed.start_line,
+            parsed.end_line,
+            parsed.original_code,
+          );
+        }
+
+        if (!verifyRes.ok) {
+          const errReason = `Original code mismatch: ${verifyRes.reason}. Never auto-correcting silently.`;
+          return {
+            diff: `// Invalid patch: ${errReason}`,
+            explanation: parsed.explanation,
+            start_line: parsed.start_line,
+            end_line: parsed.end_line,
+            original_code: parsed.original_code,
+            replacement_code: parsed.replacement_code,
+            is_valid: false,
+            invalid_reason: errReason,
+          };
+        }
+      }
+
+      // Build unified diff in code from real file and replacement code
+      const generatedDiff = effectiveFileContent
+        ? generateUnifiedDiff({
+            filePath: finding.file_path,
+            fileContent: effectiveFileContent,
+            startLine: parsed.start_line,
+            endLine: parsed.end_line,
+            replacementCode: parsed.replacement_code,
+          })
+        : `--- a/${finding.file_path}\n+++ b/${finding.file_path}\n@@ -${parsed.start_line},${parsed.original_code.split("\n").length} +${parsed.start_line},${parsed.replacement_code.split("\n").length} @@\n${parsed.original_code
+            .split("\n")
+            .map((l) => `-${l}`)
+            .join("\n")}\n${parsed.replacement_code
+            .split("\n")
+            .map((l) => `+${l}`)
+            .join("\n")}\n`;
+
+      const isXssChange = isXssInnerHtmlToTextContent(
+        parsed.original_code,
+        parsed.replacement_code,
+      );
+      const behaviorNote = isXssChange
+        ? "This changes behavior if the value is meant to contain HTML."
+        : undefined;
+
+      return {
+        diff: generatedDiff,
+        explanation: parsed.explanation,
+        start_line: parsed.start_line,
+        end_line: parsed.end_line,
+        original_code: parsed.original_code,
+        replacement_code: parsed.replacement_code,
+        behavior_note: behaviorNote,
+        is_valid: true,
+      };
     },
   });
 
   // 2. Persist to Supabase cache
-  if (userId && finding.id) {
+  if (userId && finding.id && result.is_valid !== false) {
     await saveCachedAiOutput({
       userId,
       findingId: finding.id,
@@ -531,6 +695,9 @@ export async function validatePatch(
 
   if (!diff_applies) {
     logs.push(`✗ diff_applies: FAILED — ${applyResult.error}`);
+    logs.push("— vulnerability_gone: not tested (patch did not apply)");
+    logs.push("— syntax_ok: not tested (patch did not apply)");
+    logs.push("— new_issues: not tested (patch did not apply)");
     return {
       diff_applies: false,
       vulnerability_gone: null,

@@ -111,7 +111,10 @@ export const GROQ_EXPLANATION_JSON_SCHEMA = {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export const PatchSchema = z.object({
-  diff: z.string().min(1, "Patch diff cannot be empty"),
+  start_line: z.number().int().positive("start_line must be a positive integer"),
+  end_line: z.number().int().positive("end_line must be a positive integer"),
+  original_code: z.string().min(1, "original_code cannot be empty"),
+  replacement_code: z.string(),
   explanation: z.string().min(1, "Patch explanation cannot be empty"),
 });
 
@@ -120,16 +123,30 @@ export type PatchOutput = z.infer<typeof PatchSchema>;
 export const GROQ_PATCH_JSON_SCHEMA = {
   type: "object",
   properties: {
-    diff: {
+    start_line: {
+      type: "integer",
+      description: "1-based starting line number in the source file of the code to replace",
+    },
+    end_line: {
+      type: "integer",
+      description:
+        "1-based ending line number in the source file of the code to replace (inclusive)",
+    },
+    original_code: {
       type: "string",
-      description: "Unified diff targeting exact lines with @@ hunk header",
+      description:
+        "Exact unmodified lines of original code to replace from the source file, WITHOUT line numbers",
+    },
+    replacement_code: {
+      type: "string",
+      description: "Replacement code to substitute in place of original_code, WITHOUT line numbers",
     },
     explanation: {
       type: "string",
       description: "1-2 sentences explaining why this fixes the vulnerability",
     },
   },
-  required: ["diff", "explanation"],
+  required: ["start_line", "end_line", "original_code", "replacement_code", "explanation"],
   additionalProperties: false,
 };
 

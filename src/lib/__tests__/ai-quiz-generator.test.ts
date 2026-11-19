@@ -13,7 +13,9 @@ import {
   buildQuizPrompt,
   normalizeVulnClass,
   AiQuizResponseSchema,
+  AiMultiQuizResponseSchema,
   generateAiQuizQuestion,
+  generateAiQuizQuestions,
   type FindingQuizContext,
 } from "../ai-quiz-generator";
 
@@ -133,6 +135,68 @@ describe("AI Quiz Generator for Education Checks", () => {
       };
 
       const result = AiQuizResponseSchema.safeParse(invalidAiOutput);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe("AiMultiQuizResponseSchema", () => {
+    it("validates a structured response with 3 progressive questions", () => {
+      const validMultiOutput = {
+        questions: [
+          {
+            question: "Question 1: What is the root cause of this vulnerability?",
+            options: [
+              { text: "Missing validation on input", misconceptionId: null },
+              { text: "Using wrong port", misconceptionId: "wrong_port" },
+              { text: "Outdated node version", misconceptionId: "node_version" },
+              { text: "Missing async keyword", misconceptionId: "syntax_error" },
+            ],
+            correctIndex: 0,
+            explanation: "Input reaches execution sink unvalidated.",
+            source: "OWASP",
+          },
+          {
+            question: "Question 2: How can this vulnerability be triggered?",
+            options: [
+              { text: "Only by root user", misconceptionId: "privilege_assumption" },
+              { text: "By crafting a malicious request parameter", misconceptionId: null },
+              { text: "Only on Windows servers", misconceptionId: "os_assumption" },
+              { text: "During server reboot", misconceptionId: "lifecycle_assumption" },
+            ],
+            correctIndex: 1,
+            explanation: "Untrusted request parameter triggers the vulnerable branch.",
+            source: "CWE",
+          },
+          {
+            question: "Question 3: What is the most robust remediation?",
+            options: [
+              { text: "Add a comment in the file", misconceptionId: "comment_fix" },
+              { text: "Restart the application server", misconceptionId: "restart_fix" },
+              { text: "Use parameterized queries or canonical escaping", misconceptionId: null },
+              { text: "Check string length only", misconceptionId: "shallow_length_check" },
+            ],
+            correctIndex: 2,
+            explanation: "Parameterization neutralizes injection by design.",
+            source: "OWASP Cheat Sheet",
+          },
+        ],
+      };
+
+      const result = AiMultiQuizResponseSchema.safeParse(validMultiOutput);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.questions).toHaveLength(3);
+        expect(result.data.questions[0]?.correctIndex).toBe(0);
+        expect(result.data.questions[1]?.correctIndex).toBe(1);
+        expect(result.data.questions[2]?.correctIndex).toBe(2);
+      }
+    });
+
+    it("rejects when questions array is empty", () => {
+      const invalidMultiOutput = {
+        questions: [],
+      };
+      const result = AiMultiQuizResponseSchema.safeParse(invalidMultiOutput);
       expect(result.success).toBe(false);
     });
   });

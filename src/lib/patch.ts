@@ -180,7 +180,10 @@ function applyHunk(fileLines: string[], hunk: Hunk): string | null {
  */
 export function applyUnifiedDiff(original: string, diff: string): ApplyResult {
   if (!diff || diff.trim() === "" || diff.startsWith("//")) {
-    return { ok: false, error: "Empty or placeholder diff" };
+    const customReason = diff?.startsWith("//")
+      ? diff.replace(/^\/\/\s*/, "")
+      : "Empty or placeholder diff";
+    return { ok: false, error: customReason };
   }
 
   const { hunks, error: parseError } = parseHunks(diff);
@@ -210,7 +213,146 @@ export function applyUnifiedDiff(original: string, diff: string): ApplyResult {
 }
 
 /**
- * Check JS/TS syntax by attempting to parse with acorn.
+ * Check if code lines contain line-number prefixes (e.g., "208:", "208 |", " 208: ").
+ * Strip nothing silently: report as a malformed response so it can be retried.
+ */
+export function hasLineNumberPrefixes(code: string): boolean {
+  if (!code) return false;
+  const lines = code.split("\n");
+  return lines.some((line) => /^\s*\d+\s*[:|]\s*/.test(line));
+}
+
+export interface VerifyOriginalResult {
+  ok: boolean;
+  reason?: string;
+  expectedLines?: string[];
+}
+
+/**
+ * Verify against the real file content that original_code matches lines start_line..end_line exactly
+ * (ignoring only trailing whitespace per line).
+ * startLine and endLine are 1-based inclusive line numbers.
+ * Never auto-corrects silently.
+ */
+export function verifyOriginalCode(
+  fileContent: string,
+  startLine: number,
+  endLine: number,
+  originalCode: string,
+): VerifyOriginalResult {
+  if (!fileContent) {
+    return { ok: false, reason: "Source file content is empty or not available" };
+  }
+
+  const fileLines = fileContent.split("\n");
+
+  if (startLine < 1 || startLine > fileLines.length) {
+    return {
+      ok: false,
+      reason: `start_line ${startLine} is out of bounds (file has ${fileLines.length} lines)`,
+    };
+  }
+
+  if (endLine < startLine || endLine > fileLines.length) {
+    return {
+      ok: false,
+      reason: `end_line ${endLine} is out of bounds (start_line: ${startLine}, file lines: ${fileLines.length})`,
+    };
+  }
+
+  const targetLines = fileLines.slice(startLine - 1, endLine);
+  const modelLines = originalCode.split("\n");
+
+  if (targetLines.length !== modelLines.length) {
+    return {
+      ok: false,
+      reason: `Line count mismatch: original_code has ${modelLines.length} line(s), but lines ${startLine}..${endLine} contain ${targetLines.length} line(s)`,
+      expectedLines: targetLines,
+    };
+  }
+
+  for (let i = 0; i < targetLines.length; i++) {
+    const expected = targetLines[i]!.trimEnd();
+    const actual = modelLines[i]!.trimEnd();
+    if (expected !== actual) {
+      return {
+        ok: false,
+        reason: `Content mismatch at line ${startLine + i}: expected "${expected}", got "${actual}"`,
+        expectedLines: targetLines,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+export interface GenerateDiffOptions {
+  filePath: string;
+  fileContent: string;
+  startLine: number; // 1-based
+  endLine: number; // 1-based inclusive
+  replacementCode: string;
+  contextLines?: number;
+}
+
+/**
+ * Build a valid unified diff in code from the real file and the replacement,
+ * with correct line numbers and hunk counts.
+ * Never display or store an AI-written diff header.
+ */
+export function generateUnifiedDiff(options: GenerateDiffOptions): string {
+  const { filePath, fileContent, startLine, endLine, replacementCode, contextLines = 3 } = options;
+
+  const fileLines = fileContent.split("\n");
+
+  // Determine pre-context lines (1-based index)
+  const preStart = Math.max(1, startLine - contextLines);
+  const preLines = fileLines.slice(preStart - 1, startLine - 1);
+
+  // Removed lines
+  const removedLines = fileLines.slice(startLine - 1, endLine);
+
+  // Replacement (added) lines
+  const addedLines = replacementCode.length > 0 ? replacementCode.split("\n") : [];
+
+  // Determine post-context lines
+  const postEnd = Math.min(fileLines.length, endLine + contextLines);
+  const postLines = fileLines.slice(endLine, postEnd);
+
+  const oldStart = preStart;
+  const oldCount = preLines.length + removedLines.length + postLines.length;
+  const newStart = preStart;
+  const newCount = preLines.length + addedLines.length + postLines.length;
+
+  const cleanPath = filePath.replace(/\\/g, "/");
+  const header = `--- a/${cleanPath}\n+++ b/${cleanPath}\n@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`;
+
+  const hunkLines: string[] = [
+    ...preLines.map((l) => ` ${l}`),
+    ...removedLines.map((l) => `-${l}`),
+    ...addedLines.map((l) => `+${l}`),
+    ...postLines.map((l) => ` ${l}`),
+  ];
+
+  return `${header}\n${hunkLines.join("\n")}\n`;
+}
+
+/**
+ * Checks if an XSS patch replaces innerHTML with textContent.
+ */
+export function isXssInnerHtmlToTextContent(
+  originalCode: string,
+  replacementCode: string,
+): boolean {
+  return (
+    originalCode.includes("innerHTML") &&
+    replacementCode.includes("textContent") &&
+    !replacementCode.includes("innerHTML")
+  );
+}
+
+/**
+ * Check JS/TS syntax by attempting to parse with acorn or TypeScript compiler.
  * Returns true if syntax is OK, false if parse error detected, null if not checked.
  *
  * Only checked for: .js .jsx .ts .tsx .mjs .cjs
@@ -220,24 +362,45 @@ export async function checkSyntax(content: string, filePath: string): Promise<bo
   const jsLike = new Set(["js", "jsx", "ts", "tsx", "mjs", "cjs"]);
   if (!ext || !jsLike.has(ext)) return null;
 
+  // TypeScript files (.ts, .tsx)
+  if (ext === "ts" || ext === "tsx") {
+    try {
+      const ts = await import("typescript");
+      const transpile = ts.default?.transpileModule ?? (ts as any).transpileModule;
+      if (typeof transpile === "function") {
+        const res = transpile(content, {
+          compilerOptions: {
+            jsx: (ts.default?.JsxEmit ?? (ts as any).JsxEmit)?.ReactJSX ?? 4,
+          },
+          reportDiagnostics: true,
+        });
+        const errors = (res.diagnostics ?? []).filter((d: any) => d.category === 1); // 1 = DiagnosticCategory.Error
+        return errors.length === 0;
+      }
+    } catch {
+      // Fallback to acorn stripping if typescript module is unavailable
+    }
+  }
+
+  // JS / MJS / CJS / JSX (and TS fallback)
   try {
-    // Dynamic import so the module is not required in environments where acorn isn't available
     const acorn = await import("acorn");
-    // Strip TypeScript-specific syntax before parsing with acorn (acorn is JS-only)
-    // Simple strip: remove type annotations, import type, etc. — this is best-effort
     let src = content;
     if (ext === "ts" || ext === "tsx") {
-      // Replace `: Type` annotations, `as Type` casts, generics – very rough heuristic
-      // For a production implementation, use typescript.transpileModule
       src = src
         .replace(/:\s*\w[\w<>[\]|&, ]*(?=[=,;)\n{])/g, "")
         .replace(/\bas\s+\w[\w<>[\]|& ]*/g, "")
         .replace(/<[A-Z]\w*>/g, "");
     }
-    acorn.parse(src, { ecmaVersion: "latest", sourceType: "module" });
+    acorn.parse(src, {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      allowHashBang: true,
+      allowReturnOutsideFunction: true,
+      allowImportExportEverywhere: true,
+    });
     return true;
   } catch {
-    // If acorn itself throws for non-syntax reasons (import failure etc.), don't penalize
     return false;
   }
 }

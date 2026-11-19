@@ -109,7 +109,9 @@ function BenchmarkPage() {
     const now = new Date().toLocaleTimeString();
     setLastRunTime(now);
     setIsRunning(false);
-    setRunNotification(`Benchmark re-run complete: ${summary.totalSamples} samples scanned at ${now}`);
+    setRunNotification(
+      `Benchmark re-run complete: ${summary.totalSamples} samples scanned at ${now}`,
+    );
     setTimeout(() => setRunNotification(null), 3500);
   }
 
@@ -167,9 +169,9 @@ function BenchmarkPage() {
               SAST & Patch Validation Benchmark
             </h1>
             <p className="mt-1 text-xs text-subtle max-w-2xl">
-              Evaluated on {summary.totalSamples} ground-truth samples from OWASP WebGoat, OWASP Juice Shop, and OWASP
-              NodeGoat. Un-cherry-picked metrics showing true positives, false negatives, and
-              false-positive rate.
+              Evaluated on {summary.totalSamples} ground-truth samples from OWASP WebGoat, OWASP
+              Juice Shop, and OWASP NodeGoat. Un-cherry-picked metrics showing true positives, false
+              negatives, and false-positive rate.
             </p>
           </div>
 

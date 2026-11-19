@@ -8,6 +8,8 @@ export default defineConfig({
     // Only include files that are proper vitest suites (exclude the old custom-runner files)
     include: [
       "src/**/__tests__/patch.test.ts",
+      "src/**/__tests__/zip.test.ts",
+      "src/**/__tests__/verify-real-runs.test.ts",
       "src/**/__tests__/sast.test.ts",
       "src/**/__tests__/score.test.ts",
       "src/**/__tests__/misconception.test.ts",

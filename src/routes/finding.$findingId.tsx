@@ -50,6 +50,7 @@ import { updateMasteryAfterAnswer } from "@/lib/mastery-db";
 import { checkTierAllowed } from "@/lib/tier-progression";
 import {
   generateAiQuizQuestion,
+  generateAiQuizQuestions,
   normalizeVulnClass,
   type FindingQuizContext,
 } from "@/lib/ai-quiz-generator";
@@ -91,7 +92,11 @@ function FindingDetailPage() {
   const [dismissReasonText, setDismissReasonText] = useState("");
   const [copiedDiff, setCopiedDiff] = useState(false);
 
-  // Tiered quiz state
+  // Tiered quiz state (supports 3 progressive questions)
+  const [quizQuestions, setQuizQuestions] = useState<TieredQuestion[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number | null>>({});
+  const [quizSubmittedMap, setQuizSubmittedMap] = useState<Record<number, boolean>>({});
   const [activeQuestion, setActiveQuestion] = useState<TieredQuestion | null>(null);
   const [activeTier, setActiveTier] = useState<Tier>("easy");
   const [unlockedTiers, setUnlockedTiers] = useState<Set<Tier>>(new Set(["easy"]));
@@ -263,6 +268,20 @@ function FindingDetailPage() {
     await loadQuizForFinding(rawClass, finding);
   }
 
+  function selectQuestion(index: number) {
+    setCurrentQuestionIndex(index);
+    const q = quizQuestions[index] ?? null;
+    setActiveQuestion(q);
+    setQuizAnswer(quizAnswers[index] ?? null);
+    setQuizSubmitted(quizSubmittedMap[index] ?? false);
+  }
+
+  function handleSelectOption(optionIndex: number) {
+    if (quizSubmittedMap[currentQuestionIndex]) return;
+    setQuizAnswer(optionIndex);
+    setQuizAnswers((prev) => ({ ...prev, [currentQuestionIndex]: optionIndex }));
+  }
+
   async function loadQuizForFinding(
     rawVulnClass: string | null | undefined,
     currentFinding?: FullFinding | null,
@@ -272,6 +291,11 @@ function FindingDetailPage() {
     setLoadingTier(true);
     setQuizSubmitted(false);
     setQuizAnswer(null);
+    setQuizAnswers({});
+    setQuizSubmittedMap({});
+    setQuizQuestions([]);
+    setCurrentQuestionIndex(0);
+    setActiveQuestion(null);
     setAiQuizError(null);
 
     // Normalize for DB queries and static bank lookups
@@ -302,7 +326,7 @@ function FindingDetailPage() {
     const count = tierAttempts.length;
     setAttemptCount(count);
 
-    // ── Try AI-generated question first ────────────────────────────────────
+    // ── Try AI-generated questions first (3 progressive questions) ───────────
     const apiKey =
       (typeof window !== "undefined"
         ? sessionStorage.getItem("sl_ai_key") || sessionStorage.getItem("sl_ai_backup_key") || ""
@@ -332,8 +356,10 @@ function FindingDetailPage() {
           severity: f.severity ?? null,
         };
 
-        const aiQuestion = await generateAiQuizQuestion(ctx, apiKey, backupKey);
-        setActiveQuestion(aiQuestion);
+        const aiQuestions = await generateAiQuizQuestions(ctx, apiKey, backupKey);
+        setQuizQuestions(aiQuestions);
+        setActiveQuestion(aiQuestions[0] ?? null);
+        setCurrentQuestionIndex(0);
         setQuizIsAiGenerated(true);
         setLoadingTier(false);
         return;
@@ -354,14 +380,16 @@ function FindingDetailPage() {
     // ── Fallback 1: static quiz bank (mapped class) ─────────────────────────
     const question = pickQuestion(effectiveClass, bestTier, count);
     if (question) {
+      setQuizQuestions([question]);
       setActiveQuestion(question);
+      setCurrentQuestionIndex(0);
       setQuizIsAiGenerated(false);
       setLoadingTier(false);
       return;
     }
 
     // ── Fallback 2: universal question (guaranteed never null) ──────────────
-    setActiveQuestion({
+    const universal: TieredQuestion = {
       id: "fallback_universal_easy_1",
       vulnClass: effectiveClass,
       tier: "easy",
@@ -387,7 +415,10 @@ function FindingDetailPage() {
       ],
       correctIndex: 0,
       source: "OWASP Top 10 A03:2021 – Injection https://owasp.org/Top10/A03_2021-Injection/",
-    });
+    };
+    setQuizQuestions([universal]);
+    setActiveQuestion(universal);
+    setCurrentQuestionIndex(0);
     setQuizIsAiGenerated(false);
     setLoadingTier(false);
   }
@@ -560,6 +591,13 @@ function FindingDetailPage() {
             diff: patch.diff,
             explanation_id: explanationId ?? null,
             model: realExp.modelUsed,
+            start_line: patch.start_line ?? null,
+            end_line: patch.end_line ?? null,
+            original_code: patch.original_code ?? null,
+            replacement_code: patch.replacement_code ?? null,
+            behavior_note: patch.behavior_note ?? null,
+            is_valid: patch.is_valid ?? true,
+            invalid_reason: patch.invalid_reason ?? null,
             validation_diff_applies: validation.diff_applies,
             validation_vulnerability_gone: validation.vulnerability_gone,
             validation_syntax_ok: validation.syntax_ok,
@@ -579,6 +617,13 @@ function FindingDetailPage() {
           explanation_id: explanationId ?? null,
           model: realExp.modelUsed,
           generated_at: new Date().toISOString(),
+          start_line: patch.start_line ?? null,
+          end_line: patch.end_line ?? null,
+          original_code: patch.original_code ?? null,
+          replacement_code: patch.replacement_code ?? null,
+          behavior_note: patch.behavior_note ?? null,
+          is_valid: patch.is_valid ?? true,
+          invalid_reason: patch.invalid_reason ?? null,
           validation_diff_applies: validation.diff_applies,
           validation_vulnerability_gone: validation.vulnerability_gone,
           validation_syntax_ok: validation.syntax_ok,
@@ -691,11 +736,13 @@ function FindingDetailPage() {
   }
 
   async function submitQuizAnswer() {
-    if (quizAnswer === null || !finding || !user || !activeQuestion) return;
+    const q = quizQuestions[currentQuestionIndex] ?? activeQuestion;
+    const ans = quizAnswers[currentQuestionIndex] ?? quizAnswer;
+    if (ans === null || !finding || !user || !q) return;
 
     const vulnClass = normalizeVulnClass(finding.vulnerability_class);
-    const isCorrect = quizAnswer === activeQuestion.correctIndex;
-    const misconceptionId = getMisconceptionId(activeQuestion, quizAnswer);
+    const isCorrect = ans === q.correctIndex;
+    const misconceptionId = getMisconceptionId(q, ans);
 
     // ── Server-side tier gate ──────────────────────────────────────────────
     // Re-verify the tier is unlocked (enforces server-side progression gate)
@@ -709,13 +756,13 @@ function FindingDetailPage() {
     await supabase.from("education_checks").insert({
       finding_id: findingId,
       user_id: user.id,
-      question_id: activeQuestion.id,
+      question_id: q.id,
       vuln_class: vulnClass,
       tier: activeTier,
-      question: activeQuestion.question,
-      options: activeQuestion.options.map((o) => (typeof o === "string" ? o : o.text)),
-      correct_index: activeQuestion.correctIndex,
-      user_answer: quizAnswer,
+      question: q.question,
+      options: q.options.map((o) => (typeof o === "string" ? o : o.text)),
+      correct_index: q.correctIndex,
+      user_answer: ans,
       correct: isCorrect,
       misconception_id: misconceptionId,
       answered_at: new Date().toISOString(),
@@ -728,26 +775,38 @@ function FindingDetailPage() {
     await updateMasteryAfterAnswer(user.id, vulnClass, activeTier, isCorrect, recurring.length > 0);
 
     setQuizSubmitted(true);
+    setQuizSubmittedMap((prev) => ({ ...prev, [currentQuestionIndex]: true }));
   }
 
   const validation = finding?.patch;
   const canAccept =
     validation?.validation_verdict === "accepted" || validation?.validation_vulnerability_gone;
 
-  const displayStatus =
-    finding?.status === "accepted"
-      ? "accepted"
-      : finding?.status === "rejected"
-        ? "rejected"
-        : finding?.status === "dismissed"
-          ? "dismissed"
-          : finding?.status === "likely_false_positive"
-            ? "likely_false_positive"
-            : finding?.patch?.validation_verdict === "rejected"
-              ? "validation_rejected"
-              : finding?.patch?.validation_verdict === "accepted"
-                ? "validated"
-                : (finding?.status ?? "open");
+  // Developer decision determination
+  const developerDecision =
+    suppression || finding?.status === "dismissed"
+      ? "False positive"
+      : decisionDone === "accept" || finding?.status === "accepted"
+        ? "Accepted"
+        : decisionDone === "reject" || finding?.status === "rejected"
+          ? "Rejected"
+          : "Open";
+
+  const isDeveloperOverride =
+    developerDecision === "Accepted" &&
+    (existingDecision?.is_override || finding?.patch?.validation_verdict === "rejected");
+
+  // Automatic validation determination
+  const validationStatus = !finding?.patch?.validation_verdict
+    ? "Pending"
+    : finding.patch.validation_verdict === "accepted"
+      ? "Passed"
+      : `Rejected (${finding.patch.validation_failed_check || "failed"})`;
+
+  const diffApplies =
+    finding?.patch &&
+    finding.patch.validation_diff_applies !== false &&
+    finding.patch.validation_failed_check !== "diff_does_not_apply";
 
   // Use activeQuestion from the tiered quiz bank (loaded after decision)
   // Fall back to null if vuln class has no questions
@@ -798,13 +857,63 @@ function FindingDetailPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
-        {/* Finding header */}
-        <div className="flex flex-wrap items-start gap-2.5 sm:gap-3">
+        {/* Finding header with two separate labeled badges */}
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <SeverityBadge severity={finding.severity} />
-          <StatusBadge status={displayStatus} />
+
+          {/* Badge 1: Developer decision */}
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] uppercase tracking-wider ${
+              isDeveloperOverride
+                ? "border-warning/60 text-warning bg-warning/10"
+                : developerDecision === "Accepted"
+                  ? "border-success/40 text-success bg-success/5"
+                  : developerDecision === "Rejected"
+                    ? "border-danger/40 text-danger bg-danger/5"
+                    : developerDecision === "False positive"
+                      ? "border-border text-subtle/70"
+                      : "border-border text-subtle"
+            }`}
+          >
+            <span className="size-1 rounded-full bg-current" />
+            Developer decision: {isDeveloperOverride ? "Accepted (override)" : developerDecision}
+          </span>
+
+          {/* Badge 2: Automatic validation */}
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] uppercase tracking-wider ${
+              validationStatus === "Passed"
+                ? "border-success/40 text-success bg-success/5"
+                : validationStatus.startsWith("Rejected")
+                  ? "border-danger/40 text-danger bg-danger/5"
+                  : "border-border text-subtle"
+            }`}
+          >
+            <span className="size-1 rounded-full bg-current" />
+            Automatic validation: {validationStatus}
+          </span>
+
           <span className="font-mono text-xs text-subtle">{finding.cwe}</span>
           <span className="font-mono text-xs text-subtle uppercase">{finding.tool}</span>
         </div>
+
+        {/* Warning if developer accepted despite rejected validation */}
+        {isDeveloperOverride && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-3.5 font-mono text-xs text-warning">
+            <AlertTriangle className="size-4 shrink-0 text-warning mt-0.5" />
+            <div>
+              <span className="font-semibold block">
+                Warning: Developer Override on Rejected Validation
+              </span>
+              <span className="text-foreground/80 text-[11px] leading-relaxed">
+                The automatic validation rejected this patch (
+                {finding.patch?.validation_failed_check || "validation failed"}), but it was marked
+                as accepted by developer override. It has NOT been applied to your git repository
+                and requires manual review.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Heuristic warning if finding came from LLM pass */}
         {(finding.tool === "gemini-llm-heuristic" ||
@@ -1071,16 +1180,26 @@ function FindingDetailPage() {
                     className={
                       finding.explanation.likely_false_positive === true
                         ? "text-warning font-semibold text-[11px]"
-                        : finding.explanation.likely_false_positive === false
+                        : (finding.tool === "sast-rules" ||
+                              (finding as any).source === "sast" ||
+                              finding.rule_id) &&
+                            ((finding as any).is_tainted === true ||
+                              (finding as any).untrusted_input === true ||
+                              (finding as any).data_flow_confirmed === true)
                           ? "text-success text-[11px]"
                           : "text-subtle italic text-[11px]"
                     }
                   >
                     {finding.explanation.likely_false_positive === true
                       ? "likely false positive"
-                      : finding.explanation.likely_false_positive === false
-                        ? "verified finding (not false positive)"
-                        : "not assessed"}
+                      : (finding.tool === "sast-rules" ||
+                            (finding as any).source === "sast" ||
+                            finding.rule_id) &&
+                          ((finding as any).is_tainted === true ||
+                            (finding as any).untrusted_input === true ||
+                            (finding as any).data_flow_confirmed === true)
+                        ? "verified finding (untrusted input confirmed)"
+                        : "not verified by data-flow analysis"}
                   </span>
                 </div>
 
@@ -1126,6 +1245,22 @@ function FindingDetailPage() {
             <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
               proposed patch
             </p>
+
+            {/* Behavior Warning for XSS innerHTML -> textContent */}
+            {(finding.vulnerability_class === "xss" || finding.cwe?.includes("79")) &&
+              (finding.patch.diff.includes("textContent") ||
+                (finding.patch as any).behavior_note) && (
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 font-mono text-xs text-amber-300 flex items-start gap-2.5">
+                  <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block">Behavior Warning:</span>
+                    <span className="text-foreground/90 text-[11px] leading-relaxed">
+                      This changes behavior if the value is meant to contain HTML.
+                    </span>
+                  </div>
+                </div>
+              )}
+
             <TerminalWindow title={`diff — ${finding.file_path}`}>
               <DiffView lines={parseDiff(finding.patch.diff)} />
             </TerminalWindow>
@@ -1158,20 +1293,45 @@ function FindingDetailPage() {
               validation result
             </p>
             <div className="rounded-lg border border-border bg-elevated overflow-hidden">
-              <div className="grid grid-cols-3 divide-x divide-border border-b border-border">
-                <ValidationCheck
-                  label="vulnerability removed"
-                  pass={finding.patch.validation_vulnerability_gone ?? false}
-                />
+              <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border border-b border-border">
+                <ValidationCheck label="patch applies" status={diffApplies ? "pass" : "fail"} />
                 <ValidationCheck
                   label="syntax valid"
-                  pass={finding.patch.validation_syntax_ok ?? false}
-                  na={finding.patch.validation_syntax_ok === null}
+                  status={
+                    !diffApplies
+                      ? "not_tested"
+                      : finding.patch.validation_syntax_ok === true
+                        ? "pass"
+                        : finding.patch.validation_syntax_ok === false
+                          ? "fail"
+                          : "na"
+                  }
+                  notTestedReason="patch did not apply"
+                />
+                <ValidationCheck
+                  label="vulnerability removed"
+                  status={
+                    !diffApplies
+                      ? "not_tested"
+                      : finding.patch.validation_vulnerability_gone === true
+                        ? "pass"
+                        : finding.patch.validation_vulnerability_gone === false
+                          ? "fail"
+                          : "na"
+                  }
+                  notTestedReason="patch did not apply"
                 />
                 <ValidationCheck
                   label="new issues"
-                  pass={(finding.patch.validation_new_issues ?? 0) === 0}
-                  count={finding.patch.validation_new_issues ?? 0}
+                  status={
+                    !diffApplies
+                      ? "not_tested"
+                      : (finding.patch.validation_new_issues ?? 0) === 0
+                        ? "pass"
+                        : "fail"
+                  }
+                  count={diffApplies ? (finding.patch.validation_new_issues ?? 0) : undefined}
+                  notTestedReason="patch did not apply"
                 />
               </div>
 
@@ -1676,23 +1836,72 @@ function FindingDetailPage() {
                   </div>
                 )}
 
-                <div className="text-foreground mb-4">{quiz.question}</div>
+                {/* 3 Questions Tab Selector if multiple questions are available */}
+                {quizQuestions.length > 1 && (
+                  <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-border/40 flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono text-[10px] text-subtle uppercase tracking-wider mr-1">
+                        Questions ({quizQuestions.length}):
+                      </span>
+                      {quizQuestions.map((q, idx) => {
+                        const isAnswered = Boolean(quizSubmittedMap[idx]);
+                        const ans = quizAnswers[idx];
+                        const isCorrect = isAnswered && ans === q.correctIndex;
+                        const isActive = idx === currentQuestionIndex;
+
+                        return (
+                          <button
+                            key={q.id || idx}
+                            type="button"
+                            onClick={() => selectQuestion(idx)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-mono transition-colors cursor-pointer border ${
+                              isActive
+                                ? "border-accent bg-accent/15 text-accent font-semibold ring-1 ring-accent/30"
+                                : isAnswered
+                                  ? isCorrect
+                                    ? "border-success/40 bg-success/10 text-success"
+                                    : "border-danger/40 bg-danger/10 text-danger"
+                                  : "border-border bg-elevated text-subtle hover:text-foreground"
+                            }`}
+                          >
+                            <span>Q{idx + 1}</span>
+                            {isAnswered && (
+                              <span className="text-[10px]">{isCorrect ? "✓" : "✗"}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Progress indicator */}
+                    <span className="font-mono text-[10px] text-subtle">
+                      Completed:{" "}
+                      <span className="text-foreground font-semibold">
+                        {Object.keys(quizSubmittedMap).length}/{quizQuestions.length}
+                      </span>
+                    </span>
+                  </div>
+                )}
+
+                <div className="text-foreground mb-4 font-sans font-medium text-sm leading-relaxed">
+                  {quiz.question}
+                </div>
                 <div className="space-y-2">
                   {quiz.options.map((opt, i) => (
                     <button
                       key={i}
                       disabled={quizSubmitted}
-                      onClick={() => setQuizAnswer(i)}
-                      className={`block w-full cursor-pointer text-left px-3 py-1.5 rounded transition-colors font-mono text-[11px] ${
+                      onClick={() => handleSelectOption(i)}
+                      className={`block w-full cursor-pointer text-left px-3 py-2 rounded transition-colors font-mono text-[11px] ${
                         quizSubmitted
                           ? i === quiz.correctIndex
-                            ? "text-success"
+                            ? "text-success bg-success/5 border border-success/30"
                             : i === quizAnswer && i !== quiz.correctIndex
-                              ? "text-danger"
+                              ? "text-danger bg-danger/5 border border-danger/30"
                               : "text-subtle/50"
                           : quizAnswer === i
-                            ? "text-foreground bg-accent/10"
-                            : "text-subtle hover:text-foreground"
+                            ? "text-foreground bg-accent/10 border border-accent/40"
+                            : "text-subtle hover:text-foreground border border-transparent hover:border-border"
                       }`}
                     >
                       {String.fromCharCode(97 + i)}){" "}
@@ -1711,7 +1920,7 @@ function FindingDetailPage() {
                     submit answer
                   </button>
                 ) : (
-                  <div className="mt-4 border-t border-border pt-3 space-y-2">
+                  <div className="mt-4 border-t border-border pt-3 space-y-3">
                     <span
                       className={quizAnswer === quiz.correctIndex ? "text-success" : "text-danger"}
                     >
@@ -1746,6 +1955,38 @@ function FindingDetailPage() {
                         </a>
                       </div>
                     )}
+
+                    {/* Next Question button if more questions exist */}
+                    {currentQuestionIndex < quizQuestions.length - 1 ? (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => selectQuestion(currentQuestionIndex + 1)}
+                          className="pill-hover inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/20 px-4 py-1.5 font-mono text-xs text-accent hover:bg-accent/30 transition-colors"
+                        >
+                          Next question (Q{currentQuestionIndex + 2} of {quizQuestions.length}) →
+                        </button>
+                      </div>
+                    ) : (
+                      quizQuestions.length > 1 &&
+                      Object.keys(quizSubmittedMap).length === quizQuestions.length && (
+                        <div className="rounded border border-success/30 bg-success/10 p-2.5 font-mono text-xs text-success flex items-center justify-between mt-2">
+                          <span>
+                            ✓ Completed all {quizQuestions.length} security education checks!
+                          </span>
+                          <span className="font-semibold">
+                            {
+                              quizQuestions.filter(
+                                (q, idx) =>
+                                  quizSubmittedMap[idx] && quizAnswers[idx] === q.correctIndex,
+                              ).length
+                            }{" "}
+                            / {quizQuestions.length} Correct
+                          </span>
+                        </div>
+                      )
+                    )}
+
                     <div className="flex items-center gap-4 mt-2">
                       <Link
                         to="/learn"
@@ -1781,27 +2022,31 @@ function FindingDetailPage() {
 
 function ValidationCheck({
   label,
-  pass,
-  na,
+  status,
   count,
+  notTestedReason,
 }: {
   label: string;
-  pass: boolean;
-  na?: boolean;
-  count?: number;
+  status: "pass" | "fail" | "na" | "not_tested";
+  count?: number | undefined;
+  notTestedReason?: string | undefined;
 }) {
   return (
     <div className="p-2.5 sm:p-4 flex flex-col gap-1">
       <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-subtle leading-tight">
         {label}
       </span>
-      {na ? (
+      {status === "not_tested" ? (
+        <span className="font-mono text-[10px] sm:text-[11px] text-subtle/80 italic">
+          not tested ({notTestedReason || "patch did not apply"})
+        </span>
+      ) : status === "na" ? (
         <span className="font-mono text-xs text-subtle">n/a</span>
       ) : (
         <span
-          className={`font-mono text-xs sm:text-sm font-semibold ${pass ? "text-success" : "text-danger"}`}
+          className={`font-mono text-xs sm:text-sm font-semibold ${status === "pass" ? "text-success" : "text-danger"}`}
         >
-          {count !== undefined ? count : pass ? "✓" : "✗"}
+          {count !== undefined ? count : status === "pass" ? "✓" : "✗"}
         </span>
       )}
     </div>
