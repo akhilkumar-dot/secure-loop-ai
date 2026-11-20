@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
+import * as aiPipeline from "../ai-pipeline";
 import {
   buildQuizPrompt,
   normalizeVulnClass,
@@ -198,6 +199,103 @@ describe("AI Quiz Generator for Education Checks", () => {
       };
       const result = AiMultiQuizResponseSchema.safeParse(invalidMultiOutput);
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe("generateAiQuizQuestions backup key prioritization", () => {
+    const validQuestionsMock = {
+      questions: [
+        {
+          question: "What is the primary root cause of this vulnerability?",
+          options: [
+            { text: "Option A is the correct answer", misconceptionId: null },
+            { text: "Option B is incorrect", misconceptionId: "m1" },
+            { text: "Option C is flawed", misconceptionId: "m2" },
+            { text: "Option D is wrong", misconceptionId: "m3" },
+          ],
+          correctIndex: 0,
+        },
+      ],
+    };
+
+    it("prioritizes backupKey when both apiKey and backupKey are provided", async () => {
+      const keysTried: string[] = [];
+      const mockProvider = {
+        generateChatCompletion: vi.fn().mockResolvedValue({
+          content: JSON.stringify(validQuestionsMock),
+        }),
+      };
+
+      const spy = vi.spyOn(aiPipeline, "getProvider").mockImplementation((key: string) => {
+        keysTried.push(key);
+        return mockProvider as any;
+      });
+
+      const result = await generateAiQuizQuestions(
+        sampleFindingContext,
+        "main_api_key_123",
+        "backup_api_key_456",
+      );
+
+      expect(keysTried).toEqual(["backup_api_key_456"]);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.question).toBe("What is the primary root cause of this vulnerability?");
+      spy.mockRestore();
+    });
+
+    it("uses main apiKey when backupKey is null or empty", async () => {
+      const keysTried: string[] = [];
+      const mockProvider = {
+        generateChatCompletion: vi.fn().mockResolvedValue({
+          content: JSON.stringify(validQuestionsMock),
+        }),
+      };
+
+      const spy = vi.spyOn(aiPipeline, "getProvider").mockImplementation((key: string) => {
+        keysTried.push(key);
+        return mockProvider as any;
+      });
+
+      const result = await generateAiQuizQuestions(
+        sampleFindingContext,
+        "main_api_key_123",
+        null,
+      );
+
+      expect(keysTried).toEqual(["main_api_key_123"]);
+      expect(result).toHaveLength(1);
+      spy.mockRestore();
+    });
+
+    it("falls back to main apiKey when backupKey fails", async () => {
+      const keysTried: string[] = [];
+      const mockProviderSuccess = {
+        generateChatCompletion: vi.fn().mockResolvedValue({
+          content: JSON.stringify(validQuestionsMock),
+        }),
+      };
+      const mockProviderFail = {
+        generateChatCompletion: vi.fn().mockRejectedValue(new Error("Backup key rate limit")),
+      };
+
+      const spy = vi.spyOn(aiPipeline, "getProvider").mockImplementation((key: string) => {
+        keysTried.push(key);
+        if (key === "backup_api_key_456") {
+          return mockProviderFail as any;
+        }
+        return mockProviderSuccess as any;
+      });
+
+      const result = await generateAiQuizQuestions(
+        sampleFindingContext,
+        "main_api_key_123",
+        "backup_api_key_456",
+      );
+
+      expect(keysTried).toEqual(["backup_api_key_456", "main_api_key_123"]);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.question).toBe("What is the primary root cause of this vulnerability?");
+      spy.mockRestore();
     });
   });
 });

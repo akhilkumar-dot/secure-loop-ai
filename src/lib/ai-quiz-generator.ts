@@ -15,6 +15,7 @@
 import { z } from "zod";
 import { getProvider } from "./ai-pipeline";
 import { extractFirstJson } from "./explanation-service";
+import type { DetectedProvider } from "./ai-provider-detector";
 import type { Tier, VulnClass, TieredQuestion, TieredOption } from "./quiz-bank";
 
 // ── Zod schema to validate the AI's JSON response ──────────────────────────
@@ -174,16 +175,45 @@ export function normalizeVulnClass(raw: string | undefined | null): VulnClass {
  * Returns up to 3 progressive questions (Root Cause, Exploitation, Remediation).
  *
  * @param ctx       Finding context (vuln class, CWE, code, etc.)
- * @param apiKey    Primary AI API key (Gemini, Groq, OpenRouter, OpenAI, etc.)
- * @param backupKey Optional secondary API key if primary fails
+ * @param apiKey    Primary / fallback AI API key
+ * @param backupKey Secondary AI API key (prioritized for education check if provided)
+ * @param options   Optional explicit provider overrides
  * @returns         An array of TieredQuestion objects ready for the quiz UI
  */
 export async function generateAiQuizQuestions(
   ctx: FindingQuizContext,
-  apiKey: string,
+  apiKey?: string | null,
   backupKey?: string | null,
+  options?: {
+    apiKeyProvider?: DetectedProvider;
+    backupKeyProvider?: DetectedProvider;
+  },
 ): Promise<TieredQuestion[]> {
-  const keysToTry = [apiKey, backupKey].filter((k): k is string => Boolean(k && k.trim()));
+  const cleanBackup = backupKey?.trim();
+  const cleanMain = apiKey?.trim();
+
+  // Prioritize backupKey first for education check; if not provided or it fails, fallback to main apiKey
+  const keysToTry: Array<{
+    key: string;
+    isBackup: boolean;
+    provider?: DetectedProvider | undefined;
+  }> = [];
+
+  if (cleanBackup) {
+    keysToTry.push({
+      key: cleanBackup,
+      isBackup: true,
+      provider: options?.backupKeyProvider,
+    });
+  }
+
+  if (cleanMain && (!cleanBackup || cleanMain !== cleanBackup)) {
+    keysToTry.push({
+      key: cleanMain,
+      isBackup: false,
+      provider: options?.apiKeyProvider,
+    });
+  }
 
   if (keysToTry.length === 0) {
     throw new Error("No AI API key available for quiz generation.");
@@ -193,11 +223,23 @@ export async function generateAiQuizQuestions(
   let lastError: Error | null = null;
   let rawContent: string | null = null;
 
-  for (const currentKey of keysToTry) {
+  for (const item of keysToTry) {
+    const currentKey = item.key;
     try {
-      const provider = getProvider(currentKey);
+      const explicit =
+        item.provider && (item.provider as string) !== "auto"
+          ? item.provider
+          : undefined;
+      const provider = getProvider(
+        currentKey,
+        explicit ? { explicitProvider: explicit } : undefined,
+      );
       const isGemini = currentKey.startsWith("AQ.") || currentKey.startsWith("AIza");
       const isGroq = currentKey.startsWith("gsk_");
+
+      console.log(
+        `[ai-quiz] Generating questions with ${item.isBackup ? "backup" : "main"} API key (prefix ${currentKey.slice(0, 6)})...`,
+      );
 
       const result = await provider.generateChatCompletion(
         [
@@ -217,10 +259,13 @@ export async function generateAiQuizQuestions(
       );
 
       rawContent = result.content;
+      console.log(
+        `[ai-quiz] Successfully generated questions using ${item.isBackup ? "backup" : "main"} API key.`,
+      );
       break; // Successfully got content
     } catch (err: any) {
       console.warn(
-        `[ai-quiz] Provider attempt failed with key prefix ${currentKey.slice(0, 6)}:`,
+        `[ai-quiz] ${item.isBackup ? "Backup" : "Main"} provider attempt failed with key prefix ${currentKey.slice(0, 6)}:`,
         err?.message,
       );
       lastError = err;
@@ -287,7 +332,7 @@ export async function generateAiQuizQuestions(
  */
 export async function generateAiQuizQuestion(
   ctx: FindingQuizContext,
-  apiKey: string,
+  apiKey?: string | null,
   backupKey?: string | null,
 ): Promise<TieredQuestion> {
   const questions = await generateAiQuizQuestions(ctx, apiKey, backupKey);

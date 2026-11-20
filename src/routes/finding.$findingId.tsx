@@ -327,16 +327,24 @@ function FindingDetailPage() {
     setAttemptCount(count);
 
     // ── Try AI-generated questions first (3 progressive questions) ───────────
-    const apiKey =
+    const mainKey =
       (typeof window !== "undefined"
-        ? sessionStorage.getItem("sl_ai_key") || sessionStorage.getItem("sl_ai_backup_key") || ""
+        ? sessionStorage.getItem("sl_ai_key") || ""
         : "") || regenKey;
     const backupKey =
       (typeof window !== "undefined" ? sessionStorage.getItem("sl_ai_backup_key") : null) || null;
+    const mainProviderChoice =
+      (typeof window !== "undefined"
+        ? (sessionStorage.getItem("sl_ai_provider_choice") as any)
+        : null) || undefined;
+    const backupProviderChoice =
+      (typeof window !== "undefined"
+        ? (sessionStorage.getItem("sl_ai_backup_provider_choice") as any)
+        : null) || undefined;
 
     const f = currentFinding ?? finding;
 
-    if (apiKey && f) {
+    if ((backupKey || mainKey) && f) {
       try {
         const codeSnippet = f.code_lines
           ? (f.code_lines as Array<{ n: number; code: string }>)
@@ -356,7 +364,10 @@ function FindingDetailPage() {
           severity: f.severity ?? null,
         };
 
-        const aiQuestions = await generateAiQuizQuestions(ctx, apiKey, backupKey);
+        const aiQuestions = await generateAiQuizQuestions(ctx, mainKey, backupKey, {
+          apiKeyProvider: mainProviderChoice,
+          backupKeyProvider: backupProviderChoice,
+        });
         setQuizQuestions(aiQuestions);
         setActiveQuestion(aiQuestions[0] ?? null);
         setCurrentQuestionIndex(0);
@@ -371,7 +382,7 @@ function FindingDetailPage() {
           setLoadingTier(false);
         }
       }
-    } else if (forceAi && !apiKey) {
+    } else if (forceAi && !mainKey && !backupKey) {
       setShowQuizKeyInput(true);
       setLoadingTier(false);
       return;
@@ -930,19 +941,68 @@ function FindingDetailPage() {
         <p className="mt-1 font-mono text-xs text-subtle leading-relaxed">{finding.raw_message}</p>
 
         {/* Two-column split view */}
-        <div className="mt-8 grid gap-6 md:grid-cols-2">
-          {/* Left: Code */}
-          <div>
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
-              vulnerable code
-            </p>
-            <TerminalWindow title={finding.file_path}>
-              {finding.code_lines && finding.code_lines.length > 0 ? (
-                <CodeView lines={finding.code_lines} />
-              ) : (
-                <span className="text-subtle/50 font-mono text-xs">no code context stored</span>
-              )}
-            </TerminalWindow>
+        <div className="mt-8 grid gap-6 md:grid-cols-2 items-start">
+          {/* Left: Code and Proposed Patch */}
+          <div className="space-y-6">
+            <div>
+              <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
+                vulnerable code
+              </p>
+              <TerminalWindow title={finding.file_path}>
+                {finding.code_lines && finding.code_lines.length > 0 ? (
+                  <CodeView lines={finding.code_lines} />
+                ) : (
+                  <span className="text-subtle/50 font-mono text-xs">no code context stored</span>
+                )}
+              </TerminalWindow>
+            </div>
+
+            {/* Proposed Patch (placed directly below code to eliminate empty space) */}
+            {finding.patch?.diff ? (
+              <div>
+                <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  proposed patch
+                </p>
+
+                {/* Behavior Warning for XSS innerHTML -> textContent */}
+                {(finding.vulnerability_class === "xss" || finding.cwe?.includes("79")) &&
+                  (finding.patch.diff.includes("textContent") ||
+                    (finding.patch as any).behavior_note) && (
+                    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 font-mono text-xs text-amber-300 flex items-start gap-2.5">
+                      <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
+                      <div>
+                        <span className="font-semibold block">Behavior Warning:</span>
+                        <span className="text-foreground/90 text-[11px] leading-relaxed">
+                          This changes behavior if the value is meant to contain HTML.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                <TerminalWindow title={`diff — ${finding.file_path}`}>
+                  <DiffView lines={parseDiff(finding.patch.diff)} />
+                </TerminalWindow>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-elevated p-5">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-subtle">
+                  proposed patch
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="font-mono text-xs text-subtle">No patch generated yet.</span>
+                  <button
+                    onClick={() => handleRegenerateAi()}
+                    disabled={regenerating}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 font-mono text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} />
+                    {regenerating
+                      ? "generating patch…"
+                      : `generate patch with ${detectedProviderName.toLowerCase()}`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right: Explanation */}
@@ -1237,53 +1297,6 @@ function FindingDetailPage() {
             )}
           </div>
         </div>
-
-        {/* Patch diff */}
-        {finding.patch?.diff ? (
-          <div className="mt-8">
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-subtle">
-              proposed patch
-            </p>
-
-            {/* Behavior Warning for XSS innerHTML -> textContent */}
-            {(finding.vulnerability_class === "xss" || finding.cwe?.includes("79")) &&
-              (finding.patch.diff.includes("textContent") ||
-                (finding.patch as any).behavior_note) && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 font-mono text-xs text-amber-300 flex items-start gap-2.5">
-                  <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
-                  <div>
-                    <span className="font-semibold block">Behavior Warning:</span>
-                    <span className="text-foreground/90 text-[11px] leading-relaxed">
-                      This changes behavior if the value is meant to contain HTML.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-            <TerminalWindow title={`diff — ${finding.file_path}`}>
-              <DiffView lines={parseDiff(finding.patch.diff)} />
-            </TerminalWindow>
-          </div>
-        ) : (
-          <div className="mt-8 rounded-lg border border-border bg-elevated p-5">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-subtle">
-              proposed patch
-            </p>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="font-mono text-xs text-subtle">No patch generated yet.</span>
-              <button
-                onClick={() => handleRegenerateAi()}
-                disabled={regenerating}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 font-mono text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
-              >
-                <Sparkles className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} />
-                {regenerating
-                  ? "generating patch…"
-                  : `generate patch with ${detectedProviderName.toLowerCase()}`}
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Validation result */}
         {finding.patch && (
@@ -1792,8 +1805,8 @@ function FindingDetailPage() {
                     onClick={() => {
                       const key =
                         (typeof window !== "undefined"
-                          ? sessionStorage.getItem("sl_ai_key") ||
-                            sessionStorage.getItem("sl_ai_backup_key")
+                          ? sessionStorage.getItem("sl_ai_backup_key") ||
+                            sessionStorage.getItem("sl_ai_key")
                           : "") || regenKey;
                       if (!key) {
                         setShowQuizKeyInput(true);
