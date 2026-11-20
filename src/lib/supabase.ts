@@ -121,6 +121,17 @@ export interface DbPatch {
   validation_failed_check?: string;
   /** Non-binding human-readable LLM review comment */
   validation_llm_review?: string;
+  /** All patch attempts (attempt_number, verdict, reason, provider, model, timestamp) */
+  attempts?: Array<{
+    attempt_number: number;
+    verdict: "accepted" | "rejected";
+    reason: string;
+    provider: string;
+    model: string;
+    timestamp: string;
+  }>;
+  /** Number of attempts made (1 initial + up to 2 retries) */
+  attempt_count?: number;
 }
 
 export interface DbSecurityScore {

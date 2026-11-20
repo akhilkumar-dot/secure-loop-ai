@@ -20,7 +20,7 @@ import { OpenRouterProvider, AllProvidersExhaustedError } from "./openrouter";
 import { GeminiProvider, GeminiProviderExhaustedError } from "./gemini-provider";
 import { GroqProvider, GroqProvidersExhaustedError } from "./groq";
 import { CustomOpenAIProvider } from "./custom-openai";
-import { detectProvider, type DetectedProvider } from "./ai-provider-detector";
+import { detectProvider, PROVIDER_INFOS, type DetectedProvider } from "./ai-provider-detector";
 import { executeWithRateLimitAndFallback } from "./rate-limiter";
 import { getCachedAiOutput, saveCachedAiOutput } from "./ai-cache";
 import { generateRealExplanation, type ExplanationOutput } from "./explanation-service";
@@ -491,9 +491,14 @@ CRITICAL INSTRUCTIONS:
      "replacement_code": "replacement source code to substitute in place of original_code (WITHOUT line numbers)",
      "explanation": "1-2 sentences why this fixes the vulnerability"
    }
-2. DO NOT include line numbers (such as "208:", "208 |", etc.) anywhere in original_code or replacement_code. Return plain code only.
+2. DO NOT include line numbers (such as "208:", "208 |", "- 223:", etc.) anywhere in original_code or replacement_code. Return plain code only.
 3. original_code MUST match the source file lines at start_line..end_line character for character (including exact indentation).
-4. Do NOT output unified diffs or diff headers. The unified diff will be constructed programmatically from your replacement_code.`;
+4. Do NOT output unified diffs or diff headers. The unified diff will be constructed programmatically from your replacement_code.
+5. MINIMAL EXPRESSION RULE FOR INJECTION & XSS:
+   - Change the SMALLEST possible expression necessary to fix the vulnerability.
+   - For XSS where the code deliberately constructs HTML markup (e.g. template strings, HTML element hierarchies, or dynamic wrappers) and concatenates an untrusted variable (such as el.dataset.slop or a query parameter), DO NOT crudely change innerHTML to textContent if that destroys the HTML formatting. Instead, sanitize or HTML-escape ONLY the untrusted value (e.g. using an escape function or DOM manipulation for the dynamic text).
+   - If replacing innerHTML with textContent is unavoidable and changes assignment behavior, explicitly state that in your explanation.
+   - For SQL/NoSQL injection, use parameterized queries / prepared statements passing the user input as a parameter, without altering the surrounding business logic.`;
 
   const { result, providerUsed } = await executeWithRateLimitAndFallback<GeminiPatch>({
     primaryKey: apiKeyOverride ?? "",
@@ -631,6 +636,24 @@ Please provide the exact lines above as original_code, the correct replacement_c
             .split("\n")
             .map((l) => `+${l}`)
             .join("\n")}\n`;
+
+      // Check 3: Run the exact same apply check the validator uses before returning or storing the diff
+      if (effectiveFileContent) {
+        const preApplyCheck = applyUnifiedDiff(effectiveFileContent, generatedDiff);
+        if (!preApplyCheck.ok) {
+          const errReason = `Generated diff failed pre-apply validation: ${preApplyCheck.error}. Never auto-correcting silently.`;
+          return {
+            diff: `// Invalid patch: ${errReason}`,
+            explanation: parsed.explanation,
+            start_line: parsed.start_line,
+            end_line: parsed.end_line,
+            original_code: parsed.original_code,
+            replacement_code: parsed.replacement_code,
+            is_valid: false,
+            invalid_reason: errReason,
+          };
+        }
+      }
 
       const isXssChange = isXssInnerHtmlToTextContent(
         parsed.original_code,
@@ -901,4 +924,157 @@ Return ONLY valid JSON:
       failed_check: "llm_error",
     };
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* 5. Bounded Repair Loop (Max 2 retries = 3 attempts total)                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+export interface PatchAttempt {
+  attempt_number: number;
+  verdict: "accepted" | "rejected";
+  reason: string;
+  provider: string;
+  model: string;
+  timestamp: string;
+}
+
+export interface PatchWithValidationResult {
+  patch: GeminiPatch;
+  validation: GeminiValidation;
+  attempts: PatchAttempt[];
+}
+
+/**
+ * Generate a candidate patch and validate it immediately.
+ * If validation fails, feeds the specific failure reason (and failed replacement)
+ * back to the model and retries up to 2 times (never more than 2 retries).
+ * Stores every attempt with attempt number, verdict, reason, provider, and model.
+ */
+export async function generateAndValidatePatchWithRepair(
+  finding: {
+    id?: string;
+    vulnerability_class?: string;
+    cwe?: string;
+    raw_message?: string;
+    file_path: string;
+    line_start?: number;
+    rule_id?: string;
+    source?: string;
+    code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
+  },
+  fileContent: string | undefined,
+  primaryKey: string,
+  backupKey?: string,
+  userId?: string,
+  initialFeedback?: { previousDiff?: string | undefined; rejectionNote?: string | undefined },
+): Promise<PatchWithValidationResult> {
+  const attempts: PatchAttempt[] = [];
+  let currentFeedback = initialFeedback;
+  let lastPatch: GeminiPatch | null = null;
+  let lastValidation: GeminiValidation | null = null;
+
+  const maxAttempts = 3; // 1 initial attempt + up to 2 retries
+  const provider = detectProvider(primaryKey);
+  const modelName = PROVIDER_INFOS[provider]?.name ?? "AI";
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // 1. Generate patch with current feedback
+    const patch = await generatePatch(
+      finding,
+      fileContent,
+      primaryKey,
+      backupKey,
+      userId,
+      currentFeedback,
+    );
+    lastPatch = patch;
+
+    // If patch itself marked invalid (e.g. original code mismatch, line prefix, pre-apply failure)
+    if (patch.is_valid === false) {
+      const reason = patch.invalid_reason || "Patch generation returned invalid patch structure";
+      const validation: GeminiValidation = {
+        diff_applies: false,
+        vulnerability_gone: null,
+        new_issues: 0,
+        syntax_ok: null,
+        validation_method: "deterministic",
+        verdict: "rejected",
+        logs: [`✗ patch_invalid: ${reason}`, "— remaining checks not tested (patch did not apply)"],
+        failed_check: reason.includes("original_code_mismatch")
+          ? "original_code_mismatch"
+          : reason.includes("diff")
+            ? "diff_does_not_apply"
+            : "malformed_output",
+      };
+      lastValidation = validation;
+
+      attempts.push({
+        attempt_number: attempt,
+        verdict: "rejected",
+        reason,
+        provider,
+        model: modelName,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (attempt < maxAttempts) {
+        currentFeedback = {
+          previousDiff: patch.diff,
+          rejectionNote: `Attempt ${attempt} failed: ${reason}. Ensure original_code exactly matches the real file lines and replacement_code is clean plain code without line numbers.`,
+        };
+        continue;
+      }
+      break;
+    }
+
+    // 2. Validate the generated patch
+    const validation = await validatePatch(finding, patch.diff, fileContent, primaryKey);
+    lastValidation = validation;
+
+    const isAccepted = validation.verdict === "accepted";
+    const failLog = validation.logs.find((l) => l.startsWith("✗")) || validation.failed_check;
+    const reason = isAccepted
+      ? "Patch passed all validation checks (diff applies, rule gone, syntax valid, no new issues)"
+      : (failLog ?? "Validation rejected");
+
+    attempts.push({
+      attempt_number: attempt,
+      verdict: isAccepted ? "accepted" : "rejected",
+      reason,
+      provider,
+      model: modelName,
+      timestamp: new Date().toISOString(),
+    });
+
+    // 3. Early return upon acceptance
+    if (isAccepted) {
+      break;
+    }
+
+    // 4. Build specific failure feedback for the next attempt (max 2 retries)
+    if (attempt < maxAttempts) {
+      let specificFailure = "";
+      if (validation.failed_check === "vulnerability_still_present") {
+        specificFailure = `The original vulnerability (${finding.rule_id || finding.vulnerability_class}) still fires in the patched file near line ${finding.line_start}. Ensure your replacement neutralizes the vulnerability completely.`;
+      } else if (validation.failed_check === "syntax_error") {
+        specificFailure = `Syntax error detected in the patched file. Ensure your replacement code contains valid syntax.`;
+      } else if (validation.failed_check === "new_issues_introduced") {
+        specificFailure = `New security issues were introduced by this patch (${validation.logs.filter((l) => l.includes("→")).join(", ")}).`;
+      } else {
+        specificFailure = `Validation failed: ${validation.failed_check}. ${failLog ?? ""}`;
+      }
+
+      currentFeedback = {
+        previousDiff: patch.diff,
+        rejectionNote: `Attempt ${attempt} was REJECTED: ${specificFailure}\nPrevious failed replacement code:\n${patch.replacement_code}`,
+      };
+    }
+  }
+
+  return {
+    patch: lastPatch!,
+    validation: lastValidation!,
+    attempts,
+  };
 }

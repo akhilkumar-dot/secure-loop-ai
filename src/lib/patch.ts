@@ -213,13 +213,19 @@ export function applyUnifiedDiff(original: string, diff: string): ApplyResult {
 }
 
 /**
- * Check if code lines contain line-number prefixes (e.g., "208:", "208 |", " 208: ").
+ * Check if code lines contain line-number prefixes (e.g., "208:", "208 |", " 208: ", "- 223:", "+ 223:", "-9 const").
  * Strip nothing silently: report as a malformed response so it can be retried.
  */
 export function hasLineNumberPrefixes(code: string): boolean {
   if (!code) return false;
   const lines = code.split("\n");
-  return lines.some((line) => /^\s*\d+\s*[:|]\s*/.test(line));
+  return lines.some((line) => {
+    return (
+      /^\s*\d+\s*[:|]\s*/.test(line) ||
+      /^[+-]\s*\d+\s*[:|]\s*/.test(line) ||
+      /^[+-]\s*\d+\s+[A-Za-z_$]/.test(line)
+    );
+  });
 }
 
 export interface VerifyOriginalResult {

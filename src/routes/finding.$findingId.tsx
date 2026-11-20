@@ -24,7 +24,7 @@ import {
   type DbDeveloperDecision,
   type DbFalsePositiveSuppression,
 } from "@/lib/supabase";
-import { generateExplanation, generatePatch, validatePatch } from "@/lib/ai-pipeline";
+import { generateExplanation, generateAndValidatePatchWithRepair } from "@/lib/ai-pipeline";
 import { generateRealExplanation, type ExplanationOutput } from "@/lib/explanation-service";
 import { checkExplanationGrounding, type GroundingCheckResult } from "@/lib/grounding-checker";
 import { detectProvider, PROVIDER_INFOS } from "@/lib/ai-provider-detector";
@@ -548,7 +548,7 @@ function FindingDetailPage() {
         if (newExp) explanationId = newExp.id;
       }
 
-      // 4. Generate patch using real data (with optional rejection feedback)
+      // 4. Generate patch with bounded repair loop (up to 2 retries on validation failure)
       const baseFinding: {
         id?: string;
         file_path: string;
@@ -556,6 +556,8 @@ function FindingDetailPage() {
         cwe?: string;
         raw_message?: string;
         line_start?: number;
+        rule_id?: string;
+        source?: string;
         code_lines?: Array<{ n: number; code: string; vuln?: boolean }>;
       } = { id: finding.id, file_path: finding.file_path };
       if (finding.vulnerability_class)
@@ -564,8 +566,10 @@ function FindingDetailPage() {
       if (finding.raw_message) baseFinding.raw_message = finding.raw_message;
       if (finding.line_start !== undefined) baseFinding.line_start = finding.line_start;
       if (Array.isArray(finding.code_lines)) baseFinding.code_lines = finding.code_lines as any;
+      if (finding.rule_id) baseFinding.rule_id = finding.rule_id;
+      baseFinding.source = finding.tool === "sast-rules" ? "sast" : "llm-heuristic";
 
-      const patch = await generatePatch(
+      const { patch, validation, attempts } = await generateAndValidatePatchWithRepair(
         baseFinding,
         fileContent,
         key,
@@ -574,16 +578,7 @@ function FindingDetailPage() {
         feedbackContext,
       );
 
-      // 5. Deterministic patch validation
-      const valFinding: typeof baseFinding & { rule_id?: string; source?: string } = {
-        ...baseFinding,
-      };
-      if (finding.rule_id) valFinding.rule_id = finding.rule_id;
-      valFinding.source = finding.tool === "sast-rules" ? "sast" : "llm-heuristic";
-
-      const validation = await validatePatch(valFinding, patch.diff, fileContent, key);
-
-      // 6. Persist patch
+      // 5. Persist patch
       if (finding.patch?.id) {
         await supabase
           .from("patches")
@@ -608,6 +603,8 @@ function FindingDetailPage() {
             validation_validated_at: new Date().toISOString(),
             validation_logs: validation.logs,
             validation_failed_check: validation.failed_check ?? null,
+            attempts: attempts,
+            attempt_count: attempts.length,
           })
           .eq("id", finding.patch.id);
       } else {
@@ -634,10 +631,12 @@ function FindingDetailPage() {
           validation_validated_at: new Date().toISOString(),
           validation_logs: validation.logs,
           validation_failed_check: validation.failed_check ?? null,
+          attempts: attempts,
+          attempt_count: attempts.length,
         });
       }
 
-      await supabase.from("findings").update({ status: "patched" }).eq("id", finding.id);
+      await supabase.from("findings").update({ status: "validated" }).eq("id", finding.id);
 
       // If we regenerated after rejection, reset decision state to allow reviewing the new patch
       if (feedbackContext?.previousDiff || feedbackContext?.rejectionNote) {
@@ -1388,6 +1387,25 @@ function FindingDetailPage() {
               )}
             </div>
           </div>
+        )}
+
+        {/* A6: Validator scope note + attempt count */}
+        {finding.patch && (
+          <p className="mt-2 font-mono text-[10px] text-subtle leading-relaxed">
+            The validator checks: <span className="text-foreground/70">patch applies</span>,{" "}
+            <span className="text-foreground/70">original rule removed</span>,{" "}
+            <span className="text-foreground/70">no new SAST issues</span>,{" "}
+            <span className="text-foreground/70">JS/TS syntax valid</span>. It does{" "}
+            <span className="text-warning">not</span> check behaviour correctness or the project's
+            own tests. When the patch does not apply, all other checks show{" "}
+            <span className="text-foreground/70">not tested</span>.
+            {(finding.patch as any).attempt_count != null && (
+              <span className="ml-2 text-foreground/50">
+                · {(finding.patch as any).attempt_count} attempt
+                {(finding.patch as any).attempt_count !== 1 ? "s" : ""}
+              </span>
+            )}
+          </p>
         )}
 
         {/* Decision Forms: Override Confirmation */}

@@ -18,8 +18,7 @@ import { Link } from "@tanstack/react-router";
 import {
   analyzeCodeForVulnerabilities,
   generateExplanation,
-  generatePatch,
-  validatePatch,
+  generateAndValidatePatchWithRepair,
 } from "@/lib/ai-pipeline";
 import { fetchRepoFiles, buildFileMap, type RepoFile } from "@/lib/github";
 import { extractZipFiles, computeSha1 } from "@/lib/zip";
@@ -870,12 +869,15 @@ function ScanPage() {
       }
     }
 
-    // ── 6. Generate patches ───────────────────────────────────────────────────
+    // ── 6 + 7. Generate patches with bounded repair loop & validate ──────────
     setStage("patching");
     await updateScanStatus(scanRun.id, "patching");
-    addLog(`▸ ${providerLabel}: generating candidate patches…`, "warn");
+    addLog(`▸ ${providerLabel}: generating and validating patches (up to 2 retries each)…`, "warn");
 
     const patchMap = new Map<string, string>();
+    let accepted = 0;
+    let totalFixTime = 0;
+
     for (const f of findingsData ?? []) {
       const isFp =
         falsePositiveFindings.has(f.id) ||
@@ -893,14 +895,25 @@ function ScanPage() {
 
       try {
         const fileContent = fileMap.get(f.file_path);
-        const patch = await generatePatch(
+        const start = Date.now();
+        const { patch, validation, attempts } = await generateAndValidatePatchWithRepair(
           f,
           fileContent,
           effectiveKey,
           effectiveBackupKey,
           user?.id,
         );
+        totalFixTime += (Date.now() - start) / 1000;
+
         const expId = explanationMap.get(f.id);
+
+        if (validation.failed_check === "quota_exceeded") {
+          quotaCount++;
+        }
+        if (validation.verdict === "accepted") {
+          accepted++;
+        }
+
         const { data: patchRow } = await supabase
           .from("patches")
           .insert({
@@ -909,7 +922,6 @@ function ScanPage() {
             explanation_id: expId ?? null,
             model: providerLabel,
             generated_at: new Date().toISOString(),
-            validation_new_issues: 0,
             start_line: patch.start_line ?? null,
             end_line: patch.end_line ?? null,
             original_code: patch.original_code ?? null,
@@ -917,12 +929,29 @@ function ScanPage() {
             behavior_note: patch.behavior_note ?? null,
             is_valid: patch.is_valid ?? true,
             invalid_reason: patch.invalid_reason ?? null,
+            validation_diff_applies: validation.diff_applies,
+            validation_vulnerability_gone: validation.vulnerability_gone,
+            validation_syntax_ok: validation.syntax_ok,
+            validation_new_issues: validation.new_issues,
+            validation_method: validation.validation_method,
+            validation_llm_review: validation.llm_review ?? null,
+            validation_verdict: validation.verdict,
+            validation_validated_at: new Date().toISOString(),
+            validation_logs: validation.logs,
+            validation_failed_check: validation.failed_check ?? null,
+            attempts: attempts,
+            attempt_count: attempts.length,
           })
           .select("id")
           .single();
         if (patchRow) patchMap.set(f.id, patchRow.id);
-        await supabase.from("findings").update({ status: "patched" }).eq("id", f.id);
-        addLog(`  ✓ patch generated: ${f.file_path}:${f.line_start ?? 1}`, "ok");
+
+        await supabase.from("findings").update({ status: "validated" }).eq("id", f.id);
+
+        addLog(
+          `  ${(patchRow?.id ?? "??????").slice(0, 6)}  diff_applies:${validation.diff_applies ? "✓" : "✗"}  vuln_gone:${validation.vulnerability_gone === null ? "n/a" : validation.vulnerability_gone ? "✓" : "✗"}  new_issues:${validation.new_issues}  syntax:${validation.syntax_ok === null ? "n/a" : validation.syntax_ok ? "✓" : "✗"}  attempts:${attempts.length}  → ${validation.verdict.toUpperCase()}`,
+          validation.verdict === "accepted" ? "ok" : "warn",
+        );
       } catch (err: any) {
         const errorMsg = redactKeys(err?.message || String(err), [
           effectiveKey,
@@ -944,82 +973,10 @@ function ScanPage() {
           return;
         }
 
-        addLog(`  ✖ patch error (${f.file_path}:${f.line_start ?? 1}): ${errorMsg}`, "err");
-      }
-    }
-
-    // ── 7. Validate patches ───────────────────────────────────────────────────
-    setStage("validating");
-    await updateScanStatus(scanRun.id, "validating");
-    addLog(`▸ ${providerLabel}: sandbox validation (re-analysis per patch)…`, "warn");
-
-    let accepted = 0;
-    let totalFixTime = 0;
-
-    for (const f of findingsData ?? []) {
-      const patchId = patchMap.get(f.id);
-      if (!patchId) continue;
-
-      try {
-        const { data: patchRow, error: patchErr } = await supabase
-          .from("patches")
-          .select("diff")
-          .eq("id", patchId)
-          .single();
-
-        if (patchErr) throw new Error(patchErr.message);
-
-        const start = Date.now();
-        // Pass original file content for deterministic diff-apply + SAST re-scan
-        const fileContent = fileMap.get(f.file_path);
-        const validation = await validatePatch(f, patchRow?.diff ?? "", fileContent, effectiveKey);
-        totalFixTime += (Date.now() - start) / 1000;
-
-        if (validation.failed_check === "quota_exceeded") {
-          quotaCount++;
-        }
-
-        if (validation.verdict === "accepted") {
-          accepted++;
-        }
-
-        const { error: updateErr } = await supabase
-          .from("patches")
-          .update({
-            validation_diff_applies: validation.diff_applies,
-            validation_vulnerability_gone: validation.vulnerability_gone,
-            validation_syntax_ok: validation.syntax_ok,
-            validation_new_issues: validation.new_issues,
-            validation_method: validation.validation_method,
-            validation_llm_review: validation.llm_review ?? null,
-            validation_verdict: validation.verdict,
-            validation_validated_at: new Date().toISOString(),
-            validation_logs: validation.logs,
-            validation_failed_check: validation.failed_check ?? null,
-          })
-          .eq("id", patchId);
-
-        if (updateErr) {
-          throw new Error(`Failed to persist patch validation verdict: ${updateErr.message}`);
-        }
-
-        await supabase.from("findings").update({ status: "validated" }).eq("id", f.id);
-
         addLog(
-          `  ${patchId.slice(0, 6)}  diff_applies:${validation.diff_applies ? "✓" : "✗"}  vuln_gone:${validation.vulnerability_gone === null ? "n/a" : validation.vulnerability_gone ? "✓" : "✗"}  new_issues:${validation.new_issues}  syntax:${validation.syntax_ok === null ? "n/a" : validation.syntax_ok ? "✓" : "✗"}  method:${validation.validation_method}  → ${validation.verdict.toUpperCase()}`,
-          validation.verdict === "accepted" ? "ok" : "warn",
+          `  ✖ patch+validate error (${f.file_path}:${f.line_start ?? 1}): ${errorMsg}`,
+          "err",
         );
-      } catch (err: any) {
-        addLog(`  ✖ validation error for ${patchId.slice(0, 6)}: ${err.message}`, "err");
-        await supabase
-          .from("patches")
-          .update({
-            validation_verdict: "rejected",
-            validation_logs: [err.message],
-            validation_failed_check: "exception",
-            validation_validated_at: new Date().toISOString(),
-          })
-          .eq("id", patchId);
       }
     }
 

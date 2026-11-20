@@ -25,6 +25,7 @@ export default defineConfig({
       "src/**/__tests__/explanation-integration.test.ts",
       "src/**/__tests__/decision-actions.test.ts",
       "src/**/__tests__/ai-quiz-generator.test.ts",
+      "src/**/__tests__/validator-sanity.test.ts",
     ],
     globals: true,
   },
